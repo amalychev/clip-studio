@@ -115,7 +115,7 @@ export function ProjectSettingsPage() {
               label="Водяной знак"
               value={watermark}
               onChange={e => setWatermark(e.target.value)}
-              placeholder="banks.kg"
+              placeholder="mysite.com"
               hint="Текст в правом верхнем углу видео"
             />
           </section>

@@ -92,7 +92,7 @@ export function SettingsPage() {
               label="Водяной знак по умолчанию"
               value={settings.defaultWatermark}
               onChange={e => settings.setDefaultWatermark(e.target.value)}
-              placeholder="banks.kg"
+              placeholder="mysite.com"
             />
           </section>
         </div>

@@ -1,5 +1,5 @@
 """
-Silero TTS v5 — встроенный синтез речи без Docker и внешних сервисов.
+Silero TTS v5 — built-in speech synthesis, no Docker or external services required.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_FILE = MODELS_DIR / "v5_ru.pt"
 MODEL_URL = "https://models.silero.ai/models/tts/ru/v5_ru.pt"
 
-_DEVICE = torch.device("cpu")  # Silero v5 — только CPU
+_DEVICE = torch.device("cpu")  # Silero v5 — CPU only
 _model: object | None = None
 
 
