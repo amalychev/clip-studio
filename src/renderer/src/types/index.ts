@@ -78,6 +78,7 @@ export interface WizardState {
 
   selectedMusicId: string | null
   musicVolume: number
+  enableImageTransitions: boolean
 
   subtitles: SubtitleEntry[]
   subtitleStyle: SubtitleStyle

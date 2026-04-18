@@ -16,7 +16,7 @@ export function Step7_Export() {
     projectId, exportFormats, exportProgress, exportedFiles,
     toggleFormat, setExportProgress, setExportedFiles, prevStep,
     audioFilename, images, selectedMusicId, musicVolume, subtitles,
-    subtitleStyle, speechVolume, audioDuration, timelineImageIds,
+    subtitleStyle, speechVolume, audioDuration, timelineImageIds, enableImageTransitions,
   } = useWizardStore()
   const [generating, setGenerating] = useState(false)
 
@@ -39,6 +39,7 @@ export function Step7_Export() {
       subtitle_style: subtitleStyle,
       speech_volume: speechVolume / 100,
       audio_duration: audioDuration,
+      enable_image_transitions: enableImageTransitions,
     }
 
     try {

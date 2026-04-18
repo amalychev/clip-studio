@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import tempfile
 from pathlib import Path
 from typing import AsyncGenerator
 import mutagen
@@ -43,66 +42,92 @@ def _build_ffmpeg_cmd(
     lead_in: float = 2.0,
     lead_out: float = 2.0,
     audio_duration: float = 0.0,
+    enable_image_transitions: bool = True,
 ) -> list[str]:
     tts_duration = audio_duration if audio_duration > 0 else _get_audio_duration(audio_path)
     total_duration = tts_duration + lead_in + lead_out
     image_duration = total_duration / max(len(image_paths), 1)
     lead_in_ms = int(lead_in * 1000)
-
-    # Build concat list: images cover the full total_duration
-    tmpdir = tempfile.gettempdir()
-    concat_file = Path(tmpdir) / f"concat_{Path(output_path).stem}.txt"
-    with open(concat_file, "w") as f:
-        for img in image_paths:
-            f.write(f"file '{img}'\n")
-            f.write(f"duration {image_duration:.3f}\n")
-        f.write(f"file '{image_paths[-1]}'\n")
+    transition_duration = 0.0
+    if enable_image_transitions and len(image_paths) > 1:
+        transition_duration = min(0.45, image_duration * 0.35)
+        if transition_duration < 0.12:
+            transition_duration = 0.0
 
     cmd = [FFMPEG_BIN, "-y", "-loglevel", "error"]
-    cmd += ["-f", "concat", "-safe", "0", "-i", str(concat_file)]  # 0: slideshow
-    cmd += ["-i", audio_path]                                        # 1: TTS
+    for idx, img in enumerate(image_paths):
+        loop_duration = image_duration if idx == 0 or transition_duration == 0 else image_duration + transition_duration
+        cmd += ["-loop", "1", "-t", f"{loop_duration:.3f}", "-i", img]
+
+    tts_input_idx = len(image_paths)
+    cmd += ["-i", audio_path]
+    music_input_idx = None
 
     # Audio: delay TTS by lead_in, pad with silence for lead_out
     if music_path:
-        cmd += ["-stream_loop", "-1", "-i", music_path]             # 2: music
+        music_input_idx = len(image_paths) + 1
+        cmd += ["-stream_loop", "-1", "-i", music_path]
         audio_filter = (
-            f"[1:a]volume={speech_volume:.2f},"
+            f"[{tts_input_idx}:a]volume={speech_volume:.2f},"
             f"adelay={lead_in_ms}:all=1,"
             f"apad=whole_dur={total_duration:.3f}[speech];"
-            f"[2:a]volume={music_volume:.2f},"
+            f"[{music_input_idx}:a]volume={music_volume:.2f},"
             f"atrim=duration={total_duration:.3f}[music];"
             f"[speech][music]amix=inputs=2:duration=first[aout]"
         )
     else:
         audio_filter = (
-            f"[1:a]volume={speech_volume:.2f},"
+            f"[{tts_input_idx}:a]volume={speech_volume:.2f},"
             f"adelay={lead_in_ms}:all=1,"
             f"apad=whole_dur={total_duration:.3f}[aout]"
         )
 
-    # Video filter chain
-    vf_chain = (
+    filter_parts: list[str] = []
+    base_video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},fps=25,setsar=1,format=yuv420p"
     )
+    for idx, _ in enumerate(image_paths):
+        loop_duration = image_duration if idx == 0 or transition_duration == 0 else image_duration + transition_duration
+        filter_parts.append(
+            f"[{idx}:v]{base_video_filter},trim=duration={loop_duration:.3f},setpts=PTS-STARTPTS[v{idx}]"
+        )
+
+    current_video = "v0"
+    if transition_duration > 0:
+        for idx in range(1, len(image_paths)):
+            output_label = f"vx{idx}"
+            offset = image_duration * idx - transition_duration
+            filter_parts.append(
+                f"[{current_video}][v{idx}]xfade=transition=fade:duration={transition_duration:.3f}:offset={offset:.3f}[{output_label}]"
+            )
+            current_video = output_label
+
+        enable_expr = "+".join(
+            f"between(t,{image_duration * idx - transition_duration:.3f},{image_duration * idx:.3f})"
+            for idx in range(1, len(image_paths))
+        )
+        filter_parts.append(f"[{current_video}]gblur=sigma=12:enable='{enable_expr}'[vblur]")
+        current_video = "vblur"
 
     # ASS subtitles: style embedded in file, PlayRes matches video dims → exact pixel sizes
     if ass_path:
         escaped = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-        vf_chain += f",subtitles='{escaped}'"
+        filter_parts.append(f"[{current_video}]subtitles='{escaped}'[vsub]")
+        current_video = "vsub"
 
     if watermark:
         escaped_wm = watermark.replace("'", "\\'").replace(":", "\\:")
-        vf_chain += (
-            f",drawtext=text='{escaped_wm}':fontcolor=white:fontsize=28:"
-            f"x=w-tw-20:y=20:box=1:boxcolor=black@0.5:boxborderw=6"
+        filter_parts.append(
+            f"[{current_video}]drawtext=text='{escaped_wm}':fontcolor=white:fontsize=28:"
+            f"x=w-tw-20:y=20:box=1:boxcolor=black@0.5:boxborderw=6[vwm]"
         )
+        current_video = "vwm"
 
     cmd += [
-        "-vf", vf_chain,
+        "-filter_complex", ";".join(filter_parts + [audio_filter]),
         "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
-        "-filter_complex", audio_filter,
-        "-map", "0:v", "-map", "[aout]",
+        "-map", f"[{current_video}]", "-map", "[aout]",
         "-c:a", "aac", "-b:a", "192k",
         "-t", f"{total_duration:.3f}",
         "-movflags", "+faststart",
@@ -127,6 +152,7 @@ async def generate_video_stream(
     lead_in: float = 2.0,
     lead_out: float = 2.0,
     audio_duration: float = 0.0,
+    enable_image_transitions: bool = True,
 ) -> AsyncGenerator[str, None]:
     results = []
     total = len(formats)
@@ -171,6 +197,7 @@ async def generate_video_stream(
             lead_in=lead_in,
             lead_out=lead_out,
             audio_duration=audio_duration,
+            enable_image_transitions=enable_image_transitions,
         )
 
         try:

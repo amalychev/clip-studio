@@ -30,6 +30,7 @@ class ExportRequest(BaseModel):
     lead_in: float = 2.0
     lead_out: float = 2.0
     audio_duration: float = 0.0
+    enable_image_transitions: bool = True
 
 
 class SaveRequest(BaseModel):
@@ -88,6 +89,7 @@ async def export_video(project_id: str, body: ExportRequest):
             lead_in=body.lead_in,
             lead_out=body.lead_out,
             audio_duration=body.audio_duration,
+            enable_image_transitions=body.enable_image_transitions,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

@@ -21,6 +21,7 @@ interface WizardActions {
   setTimelineImageIds: (ids: string[]) => void
   setMusic: (id: string | null) => void
   setMusicVolume: (v: number) => void
+  setEnableImageTransitions: (enabled: boolean) => void
   setSubtitles: (subs: SubtitleEntry[]) => void
   updateSubtitle: (index: number, text: string) => void
   setSubtitleStyle: (style: Partial<SubtitleStyle>) => void
@@ -47,6 +48,7 @@ const initialState: WizardState = {
   timelineImageIds: [],
   selectedMusicId: null,
   musicVolume: 30,
+  enableImageTransitions: true,
   subtitles: [],
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   speechVolume: 100,
@@ -73,6 +75,7 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
   setTimelineImageIds: (ids) => set({ timelineImageIds: ids }),
   setMusic: (id) => set({ selectedMusicId: id }),
   setMusicVolume: (v) => set({ musicVolume: v }),
+  setEnableImageTransitions: (enabled) => set({ enableImageTransitions: enabled }),
   setSubtitles: (subs) => set({ subtitles: subs.map(normalizeSubtitleEntry) }),
   updateSubtitle: (index, text) =>
     set((s) => ({
@@ -110,6 +113,7 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
     })(),
     selectedMusicId: (data.selectedMusicId as string) ?? null,
     musicVolume: (data.musicVolume as number) ?? 30,
+    enableImageTransitions: (data.enableImageTransitions as boolean) ?? true,
     subtitles: ((data.subtitles as SubtitleEntry[]) ?? []).map(normalizeSubtitleEntry),
     subtitleStyle: data.subtitleStyle
       ? { ...DEFAULT_SUBTITLE_STYLE, ...(data.subtitleStyle as SubtitleStyle) }
@@ -144,6 +148,7 @@ useWizardStore.subscribe((state) => {
         timelineImageIds: s.timelineImageIds,
         selectedMusicId: s.selectedMusicId,
         musicVolume: s.musicVolume,
+        enableImageTransitions: s.enableImageTransitions,
         subtitles: s.subtitles,
         subtitleStyle: s.subtitleStyle,
         speechVolume: s.speechVolume,

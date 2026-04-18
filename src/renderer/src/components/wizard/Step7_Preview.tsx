@@ -140,7 +140,13 @@ function AssetsPanel({ images, audioUrl, audioDuration, selectedMusicId, subtitl
 
 // ─── Subtitle Style Editor ────────────────────────────────────────────────────
 
-function StyleEditor({ style, onChange }: { style: SubtitleStyle; onChange: (p: Partial<SubtitleStyle>) => void }) {
+function StyleEditor({
+  style,
+  onChange,
+}: {
+  style: SubtitleStyle
+  onChange: (p: Partial<SubtitleStyle>) => void
+}) {
   return (
     <div className="bg-surface-1 border border-border rounded-xl p-3 h-full overflow-y-auto flex flex-col gap-3">
       <p className="text-xs font-semibold text-muted uppercase tracking-wider shrink-0">Стиль субтитров</p>
@@ -232,12 +238,20 @@ function StyleEditor({ style, onChange }: { style: SubtitleStyle; onChange: (p: 
   )
 }
 
+function getTransitionDuration(imageDuration: number) {
+  const duration = Math.min(0.45, imageDuration * 0.35)
+  return duration >= 0.12 ? duration : 0
+}
+
 // ─── Preview Canvas ───────────────────────────────────────────────────────────
 // Owns its outer container (flex-1). Uses ResizeObserver to compute the
 // correct pixel dimensions for the selected aspect ratio.
 
-function PreviewCanvas({ imageUrl, subtitle, subtitleTime, style, formatId }: {
+function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, transitionsEnabled, subtitle, subtitleTime, style, formatId }: {
   imageUrl: string | null
+  nextImageUrl: string | null
+  transitionProgress: number
+  transitionsEnabled: boolean
   subtitle: SubtitleEntry | null
   subtitleTime: number
   style: SubtitleStyle
@@ -279,7 +293,34 @@ function PreviewCanvas({ imageUrl, subtitle, subtitleTime, style, formatId }: {
       {box.w > 0 && (
         <div style={{ width: box.w, height: box.h }} className="relative overflow-hidden shrink-0">
           {imageUrl
-            ? <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            ? <>
+                <img
+                  src={imageUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{
+                    opacity: transitionsEnabled && nextImageUrl ? 1 - transitionProgress : 1,
+                    filter: transitionsEnabled && nextImageUrl && transitionProgress > 0
+                      ? `blur(${transitionProgress * 10}px)`
+                      : 'none',
+                    transform: transitionsEnabled && nextImageUrl && transitionProgress > 0
+                      ? `scale(${1 + transitionProgress * 0.03})`
+                      : 'scale(1)',
+                  }}
+                />
+                {transitionsEnabled && nextImageUrl && (
+                  <img
+                    src={nextImageUrl}
+                    alt=""
+                    className="absolute inset-0 w-full h-full object-cover"
+                    style={{
+                      opacity: transitionProgress,
+                      filter: transitionProgress > 0 ? `blur(${(1 - transitionProgress) * 10}px)` : 'blur(10px)',
+                      transform: `scale(${1.03 - transitionProgress * 0.03})`,
+                    }}
+                  />
+                )}
+              </>
             : <div className="absolute inset-0 flex items-center justify-center">
                 <span className="text-xs text-muted">Нет изображений</span>
               </div>
@@ -589,6 +630,7 @@ export function Step7_Preview() {
     images, audioUrl, audioDuration, selectedMusicId, musicVolume, speechVolume,
     subtitles, subtitleStyle, setSubtitleStyle, setMusicVolume, setSpeechVolume,
     setMusic, setSubtitles, nextStep, prevStep,
+    enableImageTransitions, setEnableImageTransitions,
     timelineImageIds: storeTimelineIds, setTimelineImageIds: syncTimelineIds,
   } = useWizardStore()
 
@@ -628,10 +670,19 @@ export function Step7_Preview() {
 
   const totalDuration = audioDuration > 0 ? audioDuration + LEAD_IN + LEAD_OUT : 0
   const imageDuration = totalDuration > 0 && timelineImages.length > 0 ? totalDuration / timelineImages.length : 5
+  const transitionDuration = enableImageTransitions ? getTransitionDuration(imageDuration) : 0
   const currentImageIdx = timelineImages.length > 0
     ? Math.min(Math.floor(currentTime / imageDuration), timelineImages.length - 1)
     : -1
   const currentImage = currentImageIdx >= 0 ? timelineImages[currentImageIdx] : null
+  const nextImage = currentImageIdx >= 0 && currentImageIdx < timelineImages.length - 1
+    ? timelineImages[currentImageIdx + 1]
+    : null
+  const timeInCurrentImage = currentImageIdx >= 0 ? currentTime - currentImageIdx * imageDuration : 0
+  const transitionStart = Math.max(imageDuration - transitionDuration, 0)
+  const transitionProgress = transitionDuration > 0 && nextImage && timeInCurrentImage >= transitionStart
+    ? Math.min((timeInCurrentImage - transitionStart) / transitionDuration, 1)
+    : 0
 
   const ttsRelTime = currentTime - LEAD_IN
   const currentSubtitle = ttsRelTime >= 0 && ttsRelTime <= audioDuration
@@ -792,9 +843,9 @@ export function Step7_Preview() {
 
         {/* Top: Assets + Style panels */}
         <div className="flex gap-3 p-5 pb-3 flex-1 min-h-0">
-          <div className="flex-1 min-w-0">
-            <AssetsPanel
-              images={images}
+        <div className="flex-1 min-w-0">
+          <AssetsPanel
+            images={images}
               audioUrl={audioUrl}
               audioDuration={audioDuration}
               selectedMusicId={selectedMusicId}
@@ -802,12 +853,27 @@ export function Step7_Preview() {
             />
           </div>
           <div className="flex-1 min-w-0">
-            <StyleEditor style={subtitleStyle} onChange={setSubtitleStyle} />
+            <StyleEditor
+              style={subtitleStyle}
+              onChange={setSubtitleStyle}
+            />
           </div>
         </div>
 
         {/* Bottom: Playback + Timeline + Nav */}
         <div className="flex flex-col gap-3 px-5 pb-5 shrink-0">
+          <div className="rounded-xl border border-border bg-surface-1 px-4 py-3">
+            <label className="flex items-center gap-2 text-sm text-white/80 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={enableImageTransitions}
+                onChange={e => setEnableImageTransitions(e.target.checked)}
+                className="accent-accent"
+              />
+              Плавные переходы между кадрами (fade + blur)
+            </label>
+          </div>
+
           <div className="flex items-center gap-3">
             <button onClick={handleReset}
               className="w-7 h-7 rounded-lg bg-surface-2 border border-border hover:border-accent flex items-center justify-center transition-colors">
@@ -873,6 +939,9 @@ export function Step7_Preview() {
 
         <PreviewCanvas
           imageUrl={currentImage?.url ?? null}
+          nextImageUrl={nextImage?.url ?? null}
+          transitionProgress={transitionProgress}
+          transitionsEnabled={enableImageTransitions}
           subtitle={currentSubtitle}
           subtitleTime={ttsRelTime}
           style={subtitleStyle}
