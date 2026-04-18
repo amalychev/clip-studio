@@ -1,0 +1,66 @@
+{
+  "name": "clip-studio",
+  "version": "0.1.0",
+  "description": "Social media video generation studio",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "build:dist": "electron-vite build && electron-builder",
+    "backend:dev": "cd backend && FFMPEG_BIN=$(node -e \"console.log(require('../node_modules/ffmpeg-static'))\") .venv/bin/uvicorn main:app --port 8765 --reload"
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.7",
+    "ffmpeg-static": "^5.3.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.0",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@tanstack/react-query": "^5.17.15",
+    "@types/node": "^20.11.5",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "axios": "^1.6.5",
+    "clsx": "^2.1.0",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "electron-vite": "^2.0.0",
+    "lucide-react": "^0.309.0",
+    "postcss": "^8.4.33",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-dropzone": "^14.2.3",
+    "react-hot-toast": "^2.4.1",
+    "react-router-dom": "^6.21.3",
+    "tailwind-merge": "^2.2.0",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.11",
+    "zustand": "^4.4.7"
+  },
+  "build": {
+    "appId": "com.clipstudio.app",
+    "productName": "Clip Studio",
+    "directories": { "output": "dist" },
+    "files": ["out/**/*"],
+    "asarUnpack": [
+      "**/node_modules/ffmpeg-static/**"
+    ],
+    "extraResources": [
+      { "from": "backend", "to": "backend", "filter": ["**/*", "!.venv/**", "!**/__pycache__/**", "!**/*.pyc"] }
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }]
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }]
+    }
+  }
+}

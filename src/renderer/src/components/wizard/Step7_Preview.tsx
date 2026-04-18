@@ -1,0 +1,846 @@
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { clsx } from 'clsx'
+import { useWizardStore } from '../../stores/wizardStore'
+import { BASE_URL } from '../../lib/api'
+import type { SubtitleEntry, SubtitleStyle, UploadedImage } from '../../types'
+import {
+  Play, Pause, SkipBack, ArrowLeft, ArrowRight, Volume2,
+  AlignLeft, AlignCenter, AlignRight, X, Music, Mic, FileText,
+} from 'lucide-react'
+import { Button } from '../ui/Button'
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const PX_PER_SEC = 72
+const TRACK_H = 34
+const RULER_H = 22
+const LEAD_IN = 2
+const LEAD_OUT = 2
+const DT_IMG = 'cs-image-id'   // dataTransfer key for images
+
+const FORMATS = [
+  { id: '9:16', label: '9:16', w: 9, h: 16 },
+  { id: '1:1',  label: '1:1',  w: 1, h: 1  },
+  { id: '4:5',  label: '4:5',  w: 4, h: 5  },
+  { id: '16:9', label: '16:9', w: 16, h: 9 },
+] as const
+type FormatId = typeof FORMATS[number]['id']
+
+function fmtTime(s: number) {
+  const m = Math.floor(s / 60)
+  return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+}
+function hexToRgb(hex: string) {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `${r},${g},${b}`
+}
+
+// ─── Assets Panel ─────────────────────────────────────────────────────────────
+
+function AssetsPanel({ images, audioUrl, audioDuration, selectedMusicId, subtitles }: {
+  images: UploadedImage[]
+  audioUrl: string | null
+  audioDuration: number
+  selectedMusicId: string | null
+  subtitles: SubtitleEntry[]
+}) {
+  const musicName = selectedMusicId
+    ? selectedMusicId.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+    : null
+
+  return (
+    <div className="bg-surface-1 border border-border rounded-xl p-3 h-full overflow-y-auto flex flex-col gap-3">
+      <p className="text-xs font-semibold text-muted uppercase tracking-wider shrink-0">Ассеты</p>
+
+      {/* Images */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[10px] text-muted/60 uppercase tracking-wider">
+          Изображения {images.length > 0 && `(${images.length})`}
+        </span>
+        {images.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {images.map((img, idx) => (
+              <div
+                key={img.id}
+                draggable
+                onDragStart={e => {
+                  e.dataTransfer.setData(DT_IMG, img.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                }}
+                className="relative group w-9 h-9 rounded overflow-hidden border border-border cursor-grab hover:border-accent transition-colors shrink-0"
+              >
+                <img src={img.url} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <span className="text-white font-bold" style={{ fontSize: 9 }}>{idx + 1}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs text-muted/40 italic">Нет изображений</span>
+        )}
+      </div>
+
+      {/* TTS */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[10px] text-muted/60 uppercase tracking-wider">Озвучка</span>
+        {audioUrl ? (
+          <div
+            draggable
+            onDragStart={e => { e.dataTransfer.setData('cs-type', 'tts'); e.dataTransfer.effectAllowed = 'move' }}
+            className="flex items-center gap-2 bg-accent/10 border border-accent/30 rounded-lg px-2 py-1.5 cursor-grab"
+          >
+            <Mic size={11} className="text-accent shrink-0" />
+            <span className="text-xs text-accent truncate">TTS · {fmtTime(audioDuration)}</span>
+          </div>
+        ) : (
+          <span className="text-xs text-muted/40 italic">Нет озвучки</span>
+        )}
+      </div>
+
+      {/* Music */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[10px] text-muted/60 uppercase tracking-wider">Фоновый звук</span>
+        {selectedMusicId ? (
+          <div
+            draggable
+            onDragStart={e => { e.dataTransfer.setData('cs-type', 'music'); e.dataTransfer.effectAllowed = 'move' }}
+            className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-2 py-1.5 cursor-grab"
+          >
+            <Music size={11} className="text-emerald-400 shrink-0" />
+            <span className="text-xs text-emerald-400 truncate capitalize">{musicName}</span>
+          </div>
+        ) : (
+          <span className="text-xs text-muted/40 italic">Нет музыки</span>
+        )}
+      </div>
+
+      {/* Subtitles */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[10px] text-muted/60 uppercase tracking-wider">Субтитры</span>
+        {subtitles.length > 0 ? (
+          <div
+            draggable
+            onDragStart={e => { e.dataTransfer.setData('cs-type', 'subtitles'); e.dataTransfer.effectAllowed = 'move' }}
+            className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1.5 cursor-grab"
+          >
+            <FileText size={11} className="text-amber-400 shrink-0" />
+            <span className="text-xs text-amber-400 truncate">{subtitles.length} строк</span>
+          </div>
+        ) : (
+          <span className="text-xs text-muted/40 italic">Нет субтитров</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Subtitle Style Editor ────────────────────────────────────────────────────
+
+function StyleEditor({ style, onChange }: { style: SubtitleStyle; onChange: (p: Partial<SubtitleStyle>) => void }) {
+  return (
+    <div className="bg-surface-1 border border-border rounded-xl p-3 h-full overflow-y-auto flex flex-col gap-3">
+      <p className="text-xs font-semibold text-muted uppercase tracking-wider shrink-0">Стиль субтитров</p>
+
+      <div className="w-full">
+        <label className="text-xs text-muted">Размер {style.fontSize}%</label>
+        <input type="range" min={1} max={15} step={0.5} value={style.fontSize}
+          onChange={e => onChange({ fontSize: +e.target.value })}
+          className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+      </div>
+
+      <div className="w-full">
+        <label className="text-xs text-muted">Прозрачность фона {style.bgOpacity}%</label>
+        <input type="range" min={0} max={100} value={style.bgOpacity}
+          onChange={e => onChange({ bgOpacity: +e.target.value })}
+          className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+      </div>
+
+      <div className="flex gap-4">
+        <div className="flex-1 flex flex-col gap-2">
+          <label className="text-xs text-muted">Цвет текста</label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={style.textColor}
+              onChange={e => onChange({ textColor: e.target.value })}
+              className="w-8 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5" />
+            <span className="text-xs text-muted font-mono">{style.textColor}</span>
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col gap-2">
+          <label className="text-xs text-muted">Цвет фона</label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={style.bgColor}
+              onChange={e => onChange({ bgColor: e.target.value })}
+              className="w-8 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5" />
+            <span className="text-xs text-muted font-mono">{style.bgColor}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="text-xs text-muted">Позиция</label>
+        <div className="flex gap-1">
+          {(['top', 'center', 'bottom'] as const).map(pos => (
+            <button key={pos} onClick={() => onChange({ position: pos })}
+              className={clsx(
+                'flex-1 py-1.5 rounded-lg border text-xs transition-colors flex items-center justify-center gap-1',
+                style.position === pos ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-white'
+              )}>
+              {pos === 'top' && <AlignLeft size={11} className="rotate-90" />}
+              {pos === 'center' && <AlignCenter size={11} />}
+              {pos === 'bottom' && <AlignRight size={11} className="rotate-90" />}
+              {{ top: 'Верх', center: 'Центр', bottom: 'Низ' }[pos]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {style.position !== 'center' && (
+        <div className="w-full">
+          <label className="text-xs text-muted">Отступ от края {style.positionMargin}%</label>
+          <input type="range" min={0} max={30} step={0.5} value={style.positionMargin}
+            onChange={e => onChange({ positionMargin: +e.target.value })}
+            className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Preview Canvas ───────────────────────────────────────────────────────────
+// Owns its outer container (flex-1). Uses ResizeObserver to compute the
+// correct pixel dimensions for the selected aspect ratio.
+
+function PreviewCanvas({ imageUrl, subtitle, style, formatId }: {
+  imageUrl: string | null; subtitle: string | null; style: SubtitleStyle; formatId: FormatId
+}) {
+  const f = FORMATS.find(x => x.id === formatId)!
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState({ w: 0, h: 0 })
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const calc = () => {
+      const cw = el.clientWidth
+      const ch = el.clientHeight
+      if (!cw || !ch) return
+      const ratio = f.w / f.h
+      const w = cw / ch > ratio ? ch * ratio : cw
+      const h = cw / ch > ratio ? ch : cw / ratio
+      setBox({ w, h })
+    }
+    calc()
+    const obs = new ResizeObserver(calc)
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [f.w, f.h])
+
+  const margin = `${style.positionMargin ?? 5}%`
+  const subtitlePos = {
+    top:    { top: margin, bottom: 'auto', transform: 'none' },
+    center: { top: '50%', bottom: 'auto', transform: 'translateY(-50%)' },
+    bottom: { bottom: margin, top: 'auto', transform: 'none' },
+  }[style.position]
+
+  return (
+    <div ref={containerRef} className="flex-1 min-h-0 rounded-xl bg-black shadow-lg flex items-center justify-center overflow-hidden">
+      {box.w > 0 && (
+        <div style={{ width: box.w, height: box.h }} className="relative overflow-hidden shrink-0">
+          {imageUrl
+            ? <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            : <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs text-muted">Нет изображений</span>
+              </div>
+          }
+          {subtitle && (
+            <div className="absolute left-0 right-0 px-4 flex justify-center z-10"
+              style={subtitlePos as React.CSSProperties}>
+              <span style={{
+                fontSize: box.h * style.fontSize / 100,
+                color: style.textColor,
+                fontWeight: style.bold ? 'bold' : 'normal',
+                background: `rgba(${hexToRgb(style.bgColor)},${style.bgOpacity / 100})`,
+                padding: `${box.h * style.fontSize / 100 * 0.22}px ${box.h * style.fontSize / 100 * 0.55}px`,
+                borderRadius: box.h * style.fontSize / 100 * 0.3,
+                lineHeight: 1.4,
+                textAlign: 'center',
+                display: 'inline-block',
+                maxWidth: '90%',
+              }}>
+                {subtitle}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Timeline ─────────────────────────────────────────────────────────────────
+
+const TRACK_COLORS = [
+  'bg-blue-500/25 border-blue-500/50',
+  'bg-purple-500/25 border-purple-500/50',
+  'bg-emerald-500/25 border-emerald-500/50',
+  'bg-pink-500/25 border-pink-500/50',
+  'bg-amber-500/25 border-amber-500/50',
+]
+
+function Timeline({
+  duration, ttsStart, ttsDuration,
+  images, imageDuration, subtitles, hasMusic,
+  speechVolume, musicVolume, currentTime,
+  onSeek, onReorder, onRemoveImage, onAddToTimeline, onRemoveMusic, onRemoveSubtitles,
+  onSpeechVolume, onMusicVolume,
+}: {
+  duration: number; ttsStart: number; ttsDuration: number
+  images: UploadedImage[]
+  imageDuration: number
+  subtitles: { index: number; startTime: number; endTime: number; text: string }[]
+  hasMusic: boolean; speechVolume: number; musicVolume: number; currentTime: number
+  onSeek: (t: number) => void
+  onReorder: (from: number, to: number) => void
+  onRemoveImage: (id: string) => void
+  onAddToTimeline: (id: string, atIdx: number) => void
+  onRemoveMusic: () => void
+  onRemoveSubtitles: () => void
+  onSpeechVolume: (v: number) => void
+  onMusicVolume: (v: number) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
+  const isDraggingPlayhead = useRef(false)
+  const totalWidth = Math.max(duration * PX_PER_SEC, 300)
+
+  const xToTime = useCallback((clientX: number) => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return 0
+    const scrollLeft = containerRef.current?.scrollLeft ?? 0
+    const x = clientX - rect.left + scrollLeft - 64
+    return Math.max(0, Math.min(x / PX_PER_SEC, duration))
+  }, [duration])
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    isDraggingPlayhead.current = true
+    onSeek(xToTime(e.clientX))
+  }
+
+  useEffect(() => {
+    const move = (e: MouseEvent) => { if (isDraggingPlayhead.current) onSeek(xToTime(e.clientX)) }
+    const up = () => { isDraggingPlayhead.current = false }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+  }, [xToTime, onSeek])
+
+  const ticks = Array.from({ length: Math.ceil(duration / 5) + 1 }, (_, i) => i * 5)
+
+  const handleImageDrop = (e: React.DragEvent, toIdx: number) => {
+    e.stopPropagation()
+    const externalId = e.dataTransfer.getData(DT_IMG)
+    if (externalId) {
+      const fromIdx = images.findIndex(i => i.id === externalId)
+      if (fromIdx === -1) {
+        // Image not on timeline (excluded) — add it back at this position
+        onAddToTimeline(externalId, toIdx)
+      } else if (fromIdx !== toIdx) {
+        onReorder(fromIdx, toIdx)
+      }
+    } else if (dragging !== null && dragging !== toIdx) {
+      onReorder(dragging, toIdx)
+    }
+    setDragging(null); setDragOver(null)
+  }
+
+  const trackLabels = [
+    'Видео', 'Речь',
+    ...(hasMusic ? ['Музыка'] : []),
+    ...(subtitles.length > 0 ? ['Субт.'] : []),
+  ]
+
+  return (
+    <div className="bg-surface-1 border border-border rounded-xl overflow-hidden flex flex-col">
+      {/* Controls header */}
+      <div className="px-3 py-2 border-b border-border flex items-center gap-4 flex-wrap">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wider shrink-0">Таймлайн</p>
+        <div className="flex items-center gap-2">
+          <Volume2 size={12} className="text-muted shrink-0" />
+          <span className="text-xs text-muted shrink-0">Речь</span>
+          <input type="range" min={0} max={100} value={speechVolume}
+            onChange={e => onSpeechVolume(+e.target.value)}
+            className="w-20 accent-accent h-1 cursor-pointer" />
+          <span className="text-xs text-muted w-7">{speechVolume}%</span>
+        </div>
+        {hasMusic && (
+          <div className="flex items-center gap-2">
+            <Volume2 size={12} className="text-muted shrink-0" />
+            <span className="text-xs text-muted shrink-0">Музыка</span>
+            <input type="range" min={0} max={100} value={musicVolume}
+              onChange={e => onMusicVolume(+e.target.value)}
+              className="w-20 accent-accent h-1 cursor-pointer" />
+            <span className="text-xs text-muted w-7">{musicVolume}%</span>
+          </div>
+        )}
+      </div>
+
+      {/* Scrollable tracks */}
+      <div ref={containerRef} className="overflow-x-auto overflow-y-hidden select-none">
+        <div style={{ width: totalWidth + 64, minWidth: '100%' }} className="relative">
+
+          {/* Labels */}
+          <div className="absolute left-0 top-0 bottom-0 w-16 bg-surface-1 z-10 border-r border-border flex flex-col">
+            <div style={{ height: RULER_H }} />
+            {trackLabels.map((label, i, arr) => (
+              <div key={label} style={{ height: TRACK_H }}
+                className={clsx('flex items-center px-2', i < arr.length - 1 && 'border-b border-border/50')}>
+                <span className="text-xs text-muted truncate">{label}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="ml-16" style={{ width: totalWidth }}>
+            {/* Ruler */}
+            <div style={{ height: RULER_H }}
+              className="relative bg-surface-2 border-b border-border cursor-col-resize"
+              onMouseDown={handleMouseDown}>
+              {ticks.map(t => (
+                <div key={t} className="absolute top-0 flex flex-col items-center pointer-events-none"
+                  style={{ left: t * PX_PER_SEC }}>
+                  <div className="w-px h-2 bg-border mt-1" />
+                  <span className="text-muted/60 mt-0.5 select-none" style={{ fontSize: 9 }}>{fmtTime(t)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Video track */}
+            <div
+              style={{ height: TRACK_H }}
+              className="relative bg-surface-2/40 border-b border-border/50 flex"
+              onMouseDown={handleMouseDown}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => {
+                const externalId = e.dataTransfer.getData(DT_IMG)
+                if (externalId && dragging === null) {
+                  const fromIdx = images.findIndex(i => i.id === externalId)
+                  if (fromIdx === -1) onAddToTimeline(externalId, images.length)
+                  else onReorder(fromIdx, images.length - 1)
+                }
+                setDragging(null); setDragOver(null)
+              }}
+            >
+              {images.map((img, idx) => (
+                <div
+                  key={img.id}
+                  draggable
+                  style={{ width: imageDuration * PX_PER_SEC - 2, marginRight: 2 }}
+                  onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData(DT_IMG, img.id); setDragging(idx) }}
+                  onDragEnter={e => { e.stopPropagation(); setDragOver(idx) }}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => handleImageDrop(e, idx)}
+                  onDragEnd={() => { setDragging(null); setDragOver(null) }}
+                  className={clsx(
+                    'group relative h-full rounded flex items-center overflow-hidden border cursor-grab',
+                    TRACK_COLORS[idx % TRACK_COLORS.length],
+                    dragging === idx && 'opacity-30',
+                    dragOver === idx && dragging !== idx && 'ring-1 ring-accent',
+                  )}
+                >
+                  <img src={img.url} alt="" className="h-full w-7 object-cover shrink-0 opacity-60" />
+                  <span className="text-xs text-white/60 px-1">{idx + 1}</span>
+                  <button
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); onRemoveImage(img.id) }}
+                    className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-red-500/80 hidden group-hover:flex items-center justify-center z-20"
+                  >
+                    <X size={7} className="text-white" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* TTS track — starts at ttsStart, spans ttsDuration */}
+            <div style={{ height: TRACK_H }}
+              className="relative bg-surface-2/40 border-b border-border/50"
+              onMouseDown={handleMouseDown}>
+              {ttsDuration > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  left: ttsStart * PX_PER_SEC + 1,
+                  width: Math.max(ttsDuration * PX_PER_SEC - 2, 0),
+                  top: 6, bottom: 6,
+                }}
+                  className="rounded bg-accent/20 border border-accent/40 flex items-center px-2 pointer-events-none">
+                  <span className="text-xs text-accent/70 truncate">TTS · {fmtTime(ttsDuration)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Music track — full duration with delete */}
+            {hasMusic && (
+              <div style={{ height: TRACK_H }}
+                className="relative bg-surface-2/40 border-b border-border/50"
+                onMouseDown={handleMouseDown}>
+                <div style={{
+                  position: 'absolute',
+                  left: 1,
+                  width: Math.max(duration * PX_PER_SEC - 2, 0),
+                  top: 6, bottom: 6,
+                }}
+                  className="group rounded bg-emerald-500/20 border border-emerald-500/40 flex items-center px-2 pointer-events-none">
+                  <span className="text-xs text-emerald-400/70 truncate flex-1">Музыка · {fmtTime(duration)}</span>
+                  <button
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); onRemoveMusic() }}
+                    className="w-3.5 h-3.5 rounded-full bg-red-500/80 hidden group-hover:flex items-center justify-center pointer-events-auto shrink-0 ml-1"
+                  >
+                    <X size={7} className="text-white" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Subtitle track — each block offset by LEAD_IN, with clear-all button */}
+            {subtitles.length > 0 && (
+              <div style={{ height: TRACK_H }} className="relative bg-surface-2/40"
+                onMouseDown={handleMouseDown}>
+                {subtitles.map(sub => (
+                  <div key={sub.index} style={{
+                    position: 'absolute',
+                    left: sub.startTime * PX_PER_SEC,
+                    width: Math.max((sub.endTime - sub.startTime) * PX_PER_SEC - 2, 16),
+                    top: 6, bottom: 6,
+                  }}
+                    className="group rounded bg-amber-500/20 border border-amber-500/40 flex items-center px-1 overflow-hidden pointer-events-none">
+                    <span className="text-amber-300/70 truncate flex-1" style={{ fontSize: 9 }}>{sub.text}</span>
+                    {sub.index === subtitles[subtitles.length - 1]?.index && (
+                      <button
+                        onMouseDown={e => e.stopPropagation()}
+                        onClick={e => { e.stopPropagation(); onRemoveSubtitles() }}
+                        className="w-3 h-3 rounded-full bg-red-500/80 hidden group-hover:flex items-center justify-center pointer-events-auto shrink-0 ml-0.5"
+                      >
+                        <X size={6} className="text-white" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Playhead */}
+          <div className="absolute top-0 bottom-0 z-20 pointer-events-none"
+            style={{ left: 64 + currentTime * PX_PER_SEC }}>
+            <div className="w-px h-full bg-red-500/80" />
+            <div className="absolute top-0 -left-1.5 w-3 h-3 bg-red-500 rounded-full" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+export function Step7_Preview() {
+  const {
+    images, audioUrl, audioDuration, selectedMusicId, musicVolume, speechVolume,
+    subtitles, subtitleStyle, setSubtitleStyle, setMusicVolume, setSpeechVolume,
+    setMusic, setSubtitles, nextStep, prevStep,
+    timelineImageIds: storeTimelineIds, setTimelineImageIds: syncTimelineIds,
+  } = useWizardStore()
+
+  const [currentTime, setCurrentTime] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [formatId, setFormatId] = useState<FormatId>('9:16')
+  const [timelineImageIds, setTimelineImageIds] = useState<string[]>(
+    () => storeTimelineIds.length ? storeTimelineIds : images.map(i => i.id)
+  )
+
+  // Sync local → store whenever timeline order/selection changes
+  useEffect(() => {
+    syncTimelineIds(timelineImageIds)
+  }, [timelineImageIds])
+
+  // Add newly uploaded images to timeline (that aren't already there)
+  useEffect(() => {
+    setTimelineImageIds(prev => {
+      const prevSet = new Set(prev)
+      const newIds = images.map(i => i.id).filter(id => !prevSet.has(id))
+      return [...prev.filter(id => images.some(img => img.id === id)), ...newIds]
+    })
+  }, [images])
+
+  const timelineImages = timelineImageIds
+    .map(id => images.find(img => img.id === id))
+    .filter(Boolean) as UploadedImage[]
+
+  const ttsRef = useRef<HTMLAudioElement | null>(null)
+  const musicRef = useRef<HTMLAudioElement | null>(null)
+  const rafRef = useRef<number>(0)
+  const ttsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const posRef = useRef(0)
+  const isPlayingRef = useRef(false)
+  const playStartWallRef = useRef(0)
+  const playStartPosRef = useRef(0)
+
+  const totalDuration = audioDuration > 0 ? audioDuration + LEAD_IN + LEAD_OUT : 0
+  const imageDuration = totalDuration > 0 && timelineImages.length > 0 ? totalDuration / timelineImages.length : 5
+  const currentImageIdx = timelineImages.length > 0
+    ? Math.min(Math.floor(currentTime / imageDuration), timelineImages.length - 1)
+    : -1
+  const currentImage = currentImageIdx >= 0 ? timelineImages[currentImageIdx] : null
+
+  const ttsRelTime = currentTime - LEAD_IN
+  const currentSubtitle = ttsRelTime >= 0 && ttsRelTime <= audioDuration
+    ? subtitles.find(s => ttsRelTime >= s.startTime && ttsRelTime <= s.endTime) ?? null
+    : null
+
+  const timelineSubtitles = subtitles.map(s => ({
+    ...s,
+    startTime: s.startTime + LEAD_IN,
+    endTime: s.endTime + LEAD_IN,
+  }))
+
+  useEffect(() => () => {
+    ttsRef.current?.pause()
+    musicRef.current?.pause()
+    cancelAnimationFrame(rafRef.current)
+    if (ttsTimerRef.current) clearTimeout(ttsTimerRef.current)
+  }, [])
+
+  useEffect(() => { if (ttsRef.current) ttsRef.current.volume = speechVolume / 100 }, [speechVolume])
+  useEffect(() => { if (musicRef.current) musicRef.current.volume = musicVolume / 100 }, [musicVolume])
+
+  const stopPlayback = useCallback(() => {
+    ttsRef.current?.pause()
+    musicRef.current?.pause()
+    cancelAnimationFrame(rafRef.current)
+    if (ttsTimerRef.current) { clearTimeout(ttsTimerRef.current); ttsTimerRef.current = null }
+    isPlayingRef.current = false
+    setIsPlaying(false)
+  }, [])
+
+  const startPlayback = useCallback((startPos: number) => {
+    if (!audioUrl || !totalDuration) return
+    // If at the end, restart from beginning
+    if (startPos >= totalDuration) {
+      posRef.current = 0
+      setCurrentTime(0)
+      if (ttsRef.current) ttsRef.current.currentTime = 0
+      if (musicRef.current) musicRef.current.currentTime = 0
+      startPos = 0
+    }
+
+    if (!ttsRef.current) ttsRef.current = new Audio(audioUrl)
+    ttsRef.current.volume = speechVolume / 100
+    ttsRef.current.loop = false
+    ttsRef.current.onended = null
+
+    if (selectedMusicId) {
+      if (!musicRef.current) musicRef.current = new Audio(`${BASE_URL}/media/music/${selectedMusicId}`)
+      musicRef.current.volume = musicVolume / 100
+      musicRef.current.loop = true
+      const musicDur = musicRef.current.duration || 0
+      musicRef.current.currentTime = musicDur > 0 ? startPos % musicDur : 0
+      musicRef.current.play()
+    }
+
+    const ttsDelayMs = Math.max(0, (LEAD_IN - startPos) * 1000)
+    if (ttsDelayMs > 0) {
+      ttsRef.current.currentTime = 0
+      ttsTimerRef.current = setTimeout(() => {
+        if (isPlayingRef.current) ttsRef.current?.play()
+        ttsTimerRef.current = null
+      }, ttsDelayMs)
+    } else {
+      const ttsOffset = Math.min(startPos - LEAD_IN, audioDuration || 0)
+      ttsRef.current.currentTime = ttsOffset
+      if (ttsOffset < (audioDuration || 0)) ttsRef.current.play()
+    }
+
+    playStartWallRef.current = Date.now()
+    playStartPosRef.current = startPos
+    isPlayingRef.current = true
+    setIsPlaying(true)
+
+    const tick = () => {
+      const elapsed = (Date.now() - playStartWallRef.current) / 1000
+      const t = playStartPosRef.current + elapsed
+      if (t >= totalDuration) {
+        posRef.current = totalDuration
+        setCurrentTime(totalDuration)
+        ttsRef.current?.pause()
+        musicRef.current?.pause()
+        if (ttsTimerRef.current) { clearTimeout(ttsTimerRef.current); ttsTimerRef.current = null }
+        isPlayingRef.current = false
+        setIsPlaying(false)
+        return
+      }
+      posRef.current = t
+      setCurrentTime(t)
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }, [audioUrl, audioDuration, totalDuration, speechVolume, musicVolume, selectedMusicId])
+
+  const seekTo = useCallback((t: number) => {
+    const clamped = Math.max(0, Math.min(t, totalDuration))
+    posRef.current = clamped
+    setCurrentTime(clamped)
+    if (ttsRef.current)
+      ttsRef.current.currentTime = Math.max(0, Math.min(clamped - LEAD_IN, audioDuration || 0))
+    if (musicRef.current) {
+      const dur = musicRef.current.duration || 0
+      musicRef.current.currentTime = dur > 0 ? clamped % dur : 0
+    }
+  }, [totalDuration, audioDuration])
+
+  const handleSeek = useCallback((t: number) => {
+    const wasPlaying = isPlayingRef.current
+    stopPlayback()
+    seekTo(t)
+    if (wasPlaying) setTimeout(() => startPlayback(Math.max(0, Math.min(t, totalDuration))), 50)
+  }, [stopPlayback, seekTo, startPlayback, totalDuration])
+
+  const handleReset = () => {
+    stopPlayback()
+    posRef.current = 0
+    setCurrentTime(0)
+    if (ttsRef.current) ttsRef.current.currentTime = 0
+    if (musicRef.current) musicRef.current.currentTime = 0
+  }
+
+  const handleReorder = (from: number, to: number) => {
+    setTimelineImageIds(prev => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
+  const handleAddToTimeline = (id: string, atIdx: number) => {
+    setTimelineImageIds(prev => {
+      if (prev.includes(id)) return prev
+      const next = [...prev]
+      next.splice(atIdx, 0, id)
+      return next
+    })
+  }
+
+  // Spacebar: play/pause
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      e.preventDefault()
+      if (isPlayingRef.current) stopPlayback()
+      else startPlayback(posRef.current)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [stopPlayback, startPlayback])
+
+  return (
+    <div className="-m-8 flex" style={{ height: 'calc(100vh - 116px)' }}>
+
+      {/* ── LEFT: Assets + Style (top) · Playback + Timeline + Nav (bottom) ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+
+        {/* Top: Assets + Style panels */}
+        <div className="flex gap-3 p-5 pb-3 flex-1 min-h-0">
+          <div className="flex-1 min-w-0">
+            <AssetsPanel
+              images={images}
+              audioUrl={audioUrl}
+              audioDuration={audioDuration}
+              selectedMusicId={selectedMusicId}
+              subtitles={subtitles}
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <StyleEditor style={subtitleStyle} onChange={setSubtitleStyle} />
+          </div>
+        </div>
+
+        {/* Bottom: Playback + Timeline + Nav */}
+        <div className="flex flex-col gap-3 px-5 pb-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={handleReset}
+              className="w-7 h-7 rounded-lg bg-surface-2 border border-border hover:border-accent flex items-center justify-center transition-colors">
+              <SkipBack size={13} className="text-muted" />
+            </button>
+            <button onClick={isPlaying ? stopPlayback : () => startPlayback(posRef.current)}
+              disabled={!audioUrl || !totalDuration}
+              className="w-8 h-8 rounded-full bg-accent hover:bg-accent-hover disabled:opacity-40 flex items-center justify-center transition-colors">
+              {isPlaying ? <Pause size={15} className="text-white" /> : <Play size={15} className="text-white ml-0.5" />}
+            </button>
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden cursor-pointer"
+              onClick={e => {
+                const r = e.currentTarget.getBoundingClientRect()
+                handleSeek(((e.clientX - r.left) / r.width) * totalDuration)
+              }}>
+              <div className="h-full bg-accent rounded-full"
+                style={{ width: `${totalDuration ? (currentTime / totalDuration) * 100 : 0}%` }} />
+            </div>
+            <span className="text-xs text-muted tabular-nums">{fmtTime(currentTime)} / {fmtTime(totalDuration)}</span>
+          </div>
+
+          <Timeline
+            duration={totalDuration || 30}
+            ttsStart={LEAD_IN}
+            ttsDuration={audioDuration || 0}
+            images={timelineImages}
+            imageDuration={imageDuration}
+            subtitles={timelineSubtitles}
+            hasMusic={!!selectedMusicId}
+            speechVolume={speechVolume}
+            musicVolume={musicVolume}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+            onReorder={handleReorder}
+            onRemoveImage={id => setTimelineImageIds(prev => prev.filter(x => x !== id))}
+            onAddToTimeline={handleAddToTimeline}
+            onRemoveMusic={() => setMusic(null)}
+            onRemoveSubtitles={() => setSubtitles([])}
+            onSpeechVolume={setSpeechVolume}
+            onMusicVolume={setMusicVolume}
+          />
+
+          <div className="flex justify-between">
+            <Button variant="ghost" onClick={prevStep} icon={<ArrowLeft size={16} />}>Назад</Button>
+            <Button onClick={nextStep} icon={<ArrowRight size={16} />}>К экспорту</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── RIGHT: Format picker + full-height preview ────────────────── */}
+      <div className="w-[35%] shrink-0 flex flex-col gap-2 p-5 pl-2">
+        {/* Format picker */}
+        <div className="flex gap-1 shrink-0">
+          {FORMATS.map(f => (
+            <button key={f.id} onClick={() => setFormatId(f.id)}
+              className={clsx('flex-1 py-1.5 rounded-lg border text-xs transition-colors',
+                formatId === f.id ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-white'
+              )}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <PreviewCanvas
+          imageUrl={currentImage?.url ?? null}
+          subtitle={currentSubtitle?.text ?? null}
+          style={subtitleStyle}
+          formatId={formatId}
+        />
+      </div>
+    </div>
+  )
+}

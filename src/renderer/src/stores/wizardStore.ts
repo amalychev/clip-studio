@@ -1,0 +1,153 @@
+import { create } from 'zustand'
+import type { WizardState, UploadedImage, SubtitleEntry, SubtitleStyle, VideoFormat, ExportProgress, ExportResult, AIProvider } from '../types'
+import { DEFAULT_VIDEO_FORMATS, DEFAULT_SUBTITLE_STYLE } from '../types'
+import { projectsApi, BASE_URL } from '../lib/api'
+
+interface WizardActions {
+  setProject: (id: string) => void
+  setStep: (step: number) => void
+  nextStep: () => void
+  prevStep: () => void
+  setRawText: (t: string) => void
+  setPreparedText: (t: string) => void
+  setProvider: (p: AIProvider) => void
+  setModel: (m: string) => void
+  setAudio: (url: string, filename: string, duration: number) => void
+  setImages: (imgs: UploadedImage[]) => void
+  addImages: (imgs: UploadedImage[]) => void
+  reorderImages: (imgs: UploadedImage[]) => void
+  removeImage: (id: string) => void
+  setTimelineImageIds: (ids: string[]) => void
+  setMusic: (id: string | null) => void
+  setMusicVolume: (v: number) => void
+  setSubtitles: (subs: SubtitleEntry[]) => void
+  updateSubtitle: (index: number, text: string) => void
+  setSubtitleStyle: (style: Partial<SubtitleStyle>) => void
+  setSpeechVolume: (v: number) => void
+  setExportFormats: (formats: VideoFormat[]) => void
+  toggleFormat: (id: string) => void
+  setExportProgress: (p: ExportProgress | null) => void
+  setExportedFiles: (files: ExportResult[]) => void
+  restoreState: (projectId: string, data: Record<string, unknown>) => void
+  reset: () => void
+}
+
+const initialState: WizardState = {
+  projectId: null,
+  currentStep: 1,
+  rawText: '',
+  preparedText: '',
+  selectedProvider: 'mistral',
+  selectedModel: 'mistral-large-latest',
+  audioUrl: null,
+  audioFilename: null,
+  audioDuration: 0,
+  images: [],
+  timelineImageIds: [],
+  selectedMusicId: null,
+  musicVolume: 30,
+  subtitles: [],
+  subtitleStyle: DEFAULT_SUBTITLE_STYLE,
+  speechVolume: 100,
+  exportFormats: DEFAULT_VIDEO_FORMATS,
+  exportProgress: null,
+  exportedFiles: [],
+}
+
+export const useWizardStore = create<WizardState & WizardActions>((set) => ({
+  ...initialState,
+  setProject: (id) => set({ projectId: id }),
+  setStep: (step) => set({ currentStep: step }),
+  nextStep: () => set((s) => ({ currentStep: Math.min(s.currentStep + 1, 8) })),
+  prevStep: () => set((s) => ({ currentStep: Math.max(s.currentStep - 1, 1) })),
+  setRawText: (t) => set({ rawText: t }),
+  setPreparedText: (t) => set({ preparedText: t }),
+  setProvider: (p) => set({ selectedProvider: p }),
+  setModel: (m) => set({ selectedModel: m }),
+  setAudio: (url, filename, duration) => set({ audioUrl: url, audioFilename: filename, audioDuration: duration }),
+  setImages: (imgs) => set({ images: imgs }),
+  addImages: (imgs) => set((s) => ({ images: [...s.images, ...imgs] })),
+  reorderImages: (imgs) => set({ images: imgs }),
+  removeImage: (id) => set((s) => ({ images: s.images.filter(i => i.id !== id) })),
+  setTimelineImageIds: (ids) => set({ timelineImageIds: ids }),
+  setMusic: (id) => set({ selectedMusicId: id }),
+  setMusicVolume: (v) => set({ musicVolume: v }),
+  setSubtitles: (subs) => set({ subtitles: subs }),
+  updateSubtitle: (index, text) =>
+    set((s) => ({
+      subtitles: s.subtitles.map(sub => sub.index === index ? { ...sub, text } : sub),
+    })),
+  setSubtitleStyle: (style) => set((s) => ({ subtitleStyle: { ...s.subtitleStyle, ...style } })),
+  setSpeechVolume: (v) => set({ speechVolume: v }),
+  setExportFormats: (formats) => set({ exportFormats: formats }),
+  toggleFormat: (id) =>
+    set((s) => ({
+      exportFormats: s.exportFormats.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f),
+    })),
+  setExportProgress: (p) => set({ exportProgress: p }),
+  setExportedFiles: (files) => set({ exportedFiles: files }),
+  restoreState: (projectId, data) => set({
+    projectId,
+    currentStep: (data.wizardStep as number) ?? 1,
+    rawText: (data.rawText as string) ?? '',
+    preparedText: (data.preparedText as string) ?? '',
+    selectedProvider: (data.selectedProvider as AIProvider) ?? initialState.selectedProvider,
+    selectedModel: (data.selectedModel as string) ?? initialState.selectedModel,
+    audioUrl: data.audioFilename
+      ? `${BASE_URL}/media/audio/${projectId}/${data.audioFilename}`
+      : null,
+    audioFilename: (data.audioFilename as string) ?? null,
+    audioDuration: (data.audioDuration as number) ?? 0,
+    images: ((data.images ?? []) as Array<{ id: string; filename: string; order: number }>).map(img => ({
+      ...img,
+      url: `${BASE_URL}/media/images/${projectId}/${img.filename}`,
+    })),
+    timelineImageIds: (() => {
+      const imgs = ((data.images ?? []) as Array<{ id: string }>).map(i => i.id)
+      const stored = data.timelineImageIds as string[] | undefined
+      return stored?.length ? stored.filter(id => imgs.includes(id)) : imgs
+    })(),
+    selectedMusicId: (data.selectedMusicId as string) ?? null,
+    musicVolume: (data.musicVolume as number) ?? 30,
+    subtitles: (data.subtitles as SubtitleEntry[]) ?? [],
+    subtitleStyle: data.subtitleStyle
+      ? { ...DEFAULT_SUBTITLE_STYLE, ...(data.subtitleStyle as SubtitleStyle) }
+      : DEFAULT_SUBTITLE_STYLE,
+    speechVolume: (data.speechVolume as number) ?? 100,
+    exportFormats: (data.exportFormats as VideoFormat[]) ?? DEFAULT_VIDEO_FORMATS,
+    exportProgress: null,
+    exportedFiles: [],
+  }),
+  reset: () => set(initialState),
+}))
+
+// Auto-save wizard state to backend with 1.5s debounce
+let _saveTimer: ReturnType<typeof setTimeout> | null = null
+
+useWizardStore.subscribe((state) => {
+  if (!state.projectId) return
+  if (_saveTimer) clearTimeout(_saveTimer)
+  _saveTimer = setTimeout(() => {
+    const s = useWizardStore.getState()
+    if (!s.projectId) return
+    projectsApi.update(s.projectId, {
+      data: {
+        wizardStep: s.currentStep,
+        rawText: s.rawText,
+        preparedText: s.preparedText,
+        selectedProvider: s.selectedProvider,
+        selectedModel: s.selectedModel,
+        audioFilename: s.audioFilename,
+        audioDuration: s.audioDuration,
+        images: s.images.map(({ id, filename, order }) => ({ id, filename, order })),
+        timelineImageIds: s.timelineImageIds,
+        selectedMusicId: s.selectedMusicId,
+        musicVolume: s.musicVolume,
+        subtitles: s.subtitles,
+        subtitleStyle: s.subtitleStyle,
+        speechVolume: s.speechVolume,
+        exportFormats: s.exportFormats,
+      },
+    }).catch(() => {})
+  }, 1500)
+})

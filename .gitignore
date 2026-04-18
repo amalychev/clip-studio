@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# macOS
+.DS_Store
+
+# Python
+*.pyc
+__pycache__/
+backend/.venv/
+backend/*.egg-info/
+
+# App data (user projects, database)
+backend/storage/
+*.db
+
+# Env secrets
+.env
+
+# Claude Code session data
+.claude/
