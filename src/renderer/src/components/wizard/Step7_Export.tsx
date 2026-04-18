@@ -16,6 +16,7 @@ export function Step7_Export() {
     projectId, exportFormats, exportProgress, exportedFiles,
     toggleFormat, setExportProgress, setExportedFiles, prevStep,
     audioFilename, images, selectedMusicId, musicVolume, subtitles,
+    subtitleStyle, speechVolume, audioDuration, timelineImageIds,
   } = useWizardStore()
   const [generating, setGenerating] = useState(false)
 
@@ -29,10 +30,15 @@ export function Step7_Export() {
     const payload = {
       formats: enabledFormats.map(f => ({ id: f.id, width: f.width, height: f.height })),
       audio_filename: audioFilename,
-      image_filenames: images.map(i => i.filename),
+      image_filenames: (timelineImageIds.length
+        ? timelineImageIds.map(id => images.find(i => i.id === id)?.filename).filter(Boolean)
+        : images.map(i => i.filename)) as string[],
       music_id: selectedMusicId,
       music_volume: musicVolume / 100,
       subtitles: subtitles,
+      subtitle_style: subtitleStyle,
+      speech_volume: speechVolume / 100,
+      audio_duration: audioDuration,
     }
 
     try {

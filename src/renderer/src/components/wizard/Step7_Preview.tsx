@@ -3,6 +3,7 @@ import { clsx } from 'clsx'
 import { useWizardStore } from '../../stores/wizardStore'
 import { BASE_URL } from '../../lib/api'
 import type { SubtitleEntry, SubtitleStyle, UploadedImage } from '../../types'
+import { getActiveSubtitleWordIndex, splitSubtitleTokens } from '../../lib/subtitles'
 import {
   Play, Pause, SkipBack, ArrowLeft, ArrowRight, Volume2,
   AlignLeft, AlignCenter, AlignRight, X, Music, Mic, FileText,
@@ -179,6 +180,28 @@ function StyleEditor({ style, onChange }: { style: SubtitleStyle; onChange: (p: 
         </div>
       </div>
 
+      <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={style.highlightActiveWord}
+          onChange={e => onChange({ highlightActiveWord: e.target.checked })}
+          className="accent-accent"
+        />
+        Подсвечивать активное слово
+      </label>
+
+      {style.highlightActiveWord && (
+        <div className="flex-1 flex flex-col gap-2">
+          <label className="text-xs text-muted">Цвет активного слова</label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={style.activeWordColor}
+              onChange={e => onChange({ activeWordColor: e.target.value })}
+              className="w-8 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5" />
+            <span className="text-xs text-muted font-mono">{style.activeWordColor}</span>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
         <label className="text-xs text-muted">Позиция</label>
         <div className="flex gap-1">
@@ -213,8 +236,12 @@ function StyleEditor({ style, onChange }: { style: SubtitleStyle; onChange: (p: 
 // Owns its outer container (flex-1). Uses ResizeObserver to compute the
 // correct pixel dimensions for the selected aspect ratio.
 
-function PreviewCanvas({ imageUrl, subtitle, style, formatId }: {
-  imageUrl: string | null; subtitle: string | null; style: SubtitleStyle; formatId: FormatId
+function PreviewCanvas({ imageUrl, subtitle, subtitleTime, style, formatId }: {
+  imageUrl: string | null
+  subtitle: SubtitleEntry | null
+  subtitleTime: number
+  style: SubtitleStyle
+  formatId: FormatId
 }) {
   const f = FORMATS.find(x => x.id === formatId)!
   const containerRef = useRef<HTMLDivElement>(null)
@@ -239,6 +266,8 @@ function PreviewCanvas({ imageUrl, subtitle, style, formatId }: {
   }, [f.w, f.h])
 
   const margin = `${style.positionMargin ?? 5}%`
+  const activeWordIndex = style.highlightActiveWord ? getActiveSubtitleWordIndex(subtitle, subtitleTime) : -1
+  const subtitleTokens = subtitle ? splitSubtitleTokens(subtitle.text) : []
   const subtitlePos = {
     top:    { top: margin, bottom: 'auto', transform: 'none' },
     center: { top: '50%', bottom: 'auto', transform: 'translateY(-50%)' },
@@ -270,7 +299,15 @@ function PreviewCanvas({ imageUrl, subtitle, style, formatId }: {
                 display: 'inline-block',
                 maxWidth: '90%',
               }}>
-                {subtitle}
+                {subtitleTokens.map((token, index) => (
+                  token.isWord && token.wordIndex === activeWordIndex
+                    ? (
+                      <span key={index} style={{ color: style.activeWordColor }}>
+                        {token.text}
+                      </span>
+                    )
+                    : token.text
+                ))}
               </span>
             </div>
           )}
@@ -836,7 +873,8 @@ export function Step7_Preview() {
 
         <PreviewCanvas
           imageUrl={currentImage?.url ?? null}
-          subtitle={currentSubtitle?.text ?? null}
+          subtitle={currentSubtitle}
+          subtitleTime={ttsRelTime}
           style={subtitleStyle}
           formatId={formatId}
         />

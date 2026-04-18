@@ -2,6 +2,8 @@ import re
 from pathlib import Path
 from database import DATA_DIR
 
+WORD_RE = re.compile(r'[^\s.,!?;:()"«»]+', re.UNICODE)
+
 
 def _split_into_segments(text: str, max_chars: int = 80) -> list[str]:
     """Split text into subtitle segments of reasonable length."""
@@ -31,6 +33,55 @@ def _split_into_segments(text: str, max_chars: int = 80) -> list[str]:
     return segments if segments else [text.strip()]
 
 
+def _split_word_tokens(text: str) -> list[dict]:
+    tokens: list[dict] = []
+    last_index = 0
+    word_index = 0
+
+    for match in WORD_RE.finditer(text):
+        start, end = match.span()
+        if start > last_index:
+            tokens.append({"text": text[last_index:start], "is_word": False, "word_index": None})
+        tokens.append({"text": match.group(0), "is_word": True, "word_index": word_index})
+        word_index += 1
+        last_index = end
+
+    if last_index < len(text):
+        tokens.append({"text": text[last_index:], "is_word": False, "word_index": None})
+
+    if not tokens:
+        tokens.append({"text": text, "is_word": False, "word_index": None})
+
+    return tokens
+
+
+def _build_word_timings(text: str, start_time: float, end_time: float) -> list[dict]:
+    word_tokens = [token for token in _split_word_tokens(text) if token["is_word"]]
+    if not word_tokens:
+        return []
+
+    total_duration = max(end_time - start_time, 0.0)
+    weighted_length = sum(max(len(token["text"]), 1) for token in word_tokens)
+    cursor = start_time
+    words = []
+
+    for i, token in enumerate(word_tokens):
+        if i == len(word_tokens) - 1:
+            word_end = end_time
+        else:
+            duration = total_duration * (max(len(token["text"]), 1) / max(weighted_length, 1))
+            word_end = min(end_time, cursor + duration)
+
+        words.append({
+            "text": token["text"],
+            "startTime": round(cursor, 3),
+            "endTime": round(word_end, 3),
+        })
+        cursor = word_end
+
+    return words
+
+
 def generate_subtitles(text: str, duration: float) -> list[dict]:
     segments = _split_into_segments(text)
     if not segments:
@@ -52,6 +103,7 @@ def generate_subtitles(text: str, duration: float) -> list[dict]:
             "startTime": round(current_time, 3),
             "endTime": round(end_time, 3),
             "text": segment,
+            "words": _build_word_timings(segment, current_time, end_time),
         })
         current_time = end_time + 0.1
 
@@ -85,6 +137,23 @@ def _hex_to_ass(hex_color: str, opacity: int = 100) -> str:
     return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
 
 
+def _escape_ass_text(text: str) -> str:
+    return text.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}").replace("\n", r"\N")
+
+
+def _build_ass_highlight_text(text: str, active_word_index: int) -> str:
+    parts: list[str] = []
+    for token in _split_word_tokens(text):
+        escaped = _escape_ass_text(str(token["text"]))
+        if not token["is_word"]:
+            parts.append(r"{\alpha&HFF&}" + escaped)
+        elif token["word_index"] == active_word_index:
+            parts.append(r"{\alpha&H00&}" + escaped)
+        else:
+            parts.append(r"{\alpha&HFF&}" + escaped)
+    return "".join(parts)
+
+
 def save_subtitles_ass(
     subtitles: list[dict],
     project_id: str,
@@ -105,8 +174,11 @@ def save_subtitles_ass(
     font_size = max(8, int(height * style.get("fontSize", 2.5) / 100))
     outline = max(1, font_size // 5)
     text_color = _hex_to_ass(style.get("textColor", "#ffffff"), 100)
+    active_word_color = _hex_to_ass(style.get("activeWordColor", "#facc15"), 100)
     bg_color = _hex_to_ass(style.get("bgColor", "#2563eb"), style.get("bgOpacity", 100))
+    transparent = "&HFF000000"
     bold = -1 if style.get("bold", True) else 0
+    highlight_active_word = bool(style.get("highlightActiveWord", True))
     pos = style.get("position", "bottom")
     alignment = 2 if pos == "bottom" else (8 if pos == "top" else 5)
     margin_v = int(height * style.get("positionMargin", 5) / 100)
@@ -127,6 +199,8 @@ def save_subtitles_ass(
         # OutlineColour = BackColour so the box color is correct in all libass versions
         f"Style: Default,Arial,{font_size},{text_color},{text_color},{bg_color},{bg_color},"
         f"{bold},0,0,0,100,100,0,0,3,{outline},0,{alignment},{margin_h},{margin_h},{margin_v},1",
+        f"Style: ActiveWord,Arial,{font_size},{active_word_color},{active_word_color},{transparent},{transparent},"
+        f"{bold},0,0,0,100,100,0,0,1,0,0,{alignment},{margin_h},{margin_h},{margin_v},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -136,8 +210,16 @@ def save_subtitles_ass(
     for sub in subtitles:
         start = _format_ass_time(sub["startTime"] + time_offset)
         end = _format_ass_time(sub["endTime"] + time_offset)
-        text = str(sub["text"]).replace("\n", "\\N")
+        text = _escape_ass_text(str(sub["text"]))
         events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
+
+        words = sub.get("words") or _build_word_timings(str(sub["text"]), float(sub["startTime"]), float(sub["endTime"]))
+        if highlight_active_word and words:
+            for word_index, word in enumerate(words):
+                word_start = _format_ass_time(float(word["startTime"]) + time_offset)
+                word_end = _format_ass_time(float(word["endTime"]) + time_offset)
+                highlight_text = _build_ass_highlight_text(str(sub["text"]), word_index)
+                events.append(f"Dialogue: 1,{word_start},{word_end},ActiveWord,,0,0,0,,{highlight_text}")
 
     ass_path.write_text(header + "\n" + "\n".join(events) + "\n", encoding="utf-8")
     return ass_path

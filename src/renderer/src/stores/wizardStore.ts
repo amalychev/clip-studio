@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { WizardState, UploadedImage, SubtitleEntry, SubtitleStyle, VideoFormat, ExportProgress, ExportResult, AIProvider } from '../types'
 import { DEFAULT_VIDEO_FORMATS, DEFAULT_SUBTITLE_STYLE } from '../types'
 import { projectsApi, BASE_URL } from '../lib/api'
+import { normalizeSubtitleEntry } from '../lib/subtitles'
 
 interface WizardActions {
   setProject: (id: string) => void
@@ -72,10 +73,10 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
   setTimelineImageIds: (ids) => set({ timelineImageIds: ids }),
   setMusic: (id) => set({ selectedMusicId: id }),
   setMusicVolume: (v) => set({ musicVolume: v }),
-  setSubtitles: (subs) => set({ subtitles: subs }),
+  setSubtitles: (subs) => set({ subtitles: subs.map(normalizeSubtitleEntry) }),
   updateSubtitle: (index, text) =>
     set((s) => ({
-      subtitles: s.subtitles.map(sub => sub.index === index ? { ...sub, text } : sub),
+      subtitles: s.subtitles.map(sub => sub.index === index ? normalizeSubtitleEntry({ ...sub, text }) : sub),
     })),
   setSubtitleStyle: (style) => set((s) => ({ subtitleStyle: { ...s.subtitleStyle, ...style } })),
   setSpeechVolume: (v) => set({ speechVolume: v }),
@@ -109,7 +110,7 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
     })(),
     selectedMusicId: (data.selectedMusicId as string) ?? null,
     musicVolume: (data.musicVolume as number) ?? 30,
-    subtitles: (data.subtitles as SubtitleEntry[]) ?? [],
+    subtitles: ((data.subtitles as SubtitleEntry[]) ?? []).map(normalizeSubtitleEntry),
     subtitleStyle: data.subtitleStyle
       ? { ...DEFAULT_SUBTITLE_STYLE, ...(data.subtitleStyle as SubtitleStyle) }
       : DEFAULT_SUBTITLE_STYLE,

@@ -99,7 +99,7 @@ export function Step6_Subtitles() {
         <div className="flex items-center gap-3">
           <Button variant="ghost" onClick={nextStep}>Пропустить</Button>
           <Button onClick={nextStep} disabled={subtitles.length === 0} icon={<ArrowRight size={16} />}>
-            К экспорту
+            К просмотру
           </Button>
         </div>
       </div>

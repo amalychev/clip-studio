@@ -26,6 +26,13 @@ export interface SubtitleEntry {
   startTime: number
   endTime: number
   text: string
+  words?: SubtitleWord[]
+}
+
+export interface SubtitleWord {
+  text: string
+  startTime: number
+  endTime: number
 }
 
 export interface SubtitleStyle {
@@ -36,6 +43,8 @@ export interface SubtitleStyle {
   bold: boolean
   position: 'top' | 'center' | 'bottom'
   positionMargin: number  // % of video height from the nearest edge
+  highlightActiveWord: boolean
+  activeWordColor: string
 }
 
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
@@ -46,6 +55,8 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   bold: true,
   position: 'bottom',
   positionMargin: 5,
+  highlightActiveWord: true,
+  activeWordColor: '#facc15',
 }
 
 export interface WizardState {
