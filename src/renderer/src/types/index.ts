@@ -36,6 +36,8 @@ export interface SubtitleWord {
 
 export interface SubtitleStyle {
   fontSize: number
+  lineSpacing: number   // % of font size, e.g. 150 = 1.5x line height
+  borderRadius: number  // % of font size for rounded corners, 0 = square
   textColor: string
   bgColor: string
   bgOpacity: number
@@ -47,7 +49,9 @@ export interface SubtitleStyle {
 }
 
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
-  fontSize: 2.5,
+  fontSize: 3,
+  lineSpacing: 135,
+  borderRadius: 0,
   textColor: '#ffffff',
   bgColor: '#2563eb',
   bgOpacity: 100,

@@ -4,7 +4,7 @@ import { projectsApi } from '../lib/api'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Badge } from '../components/ui/Badge'
-import { Plus, FolderOpen, Trash2, MoreHorizontal, Calendar, Video } from 'lucide-react'
+import { Plus, FolderOpen, Trash2, Pencil, Calendar, Video } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { clsx } from 'clsx'
 
@@ -22,6 +22,10 @@ export function ProjectsPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [loading, setLoading] = useState(false)
+  const [editProject, setEditProject] = useState<Project | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editLoading, setEditLoading] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -42,6 +46,31 @@ export function ProjectsPage() {
       toast.error('Ошибка создания проекта')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openEdit = (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditProject(project)
+    setEditName(project.name)
+    setEditDescription(project.description || '')
+  }
+
+  const handleEdit = async () => {
+    if (!editProject || !editName.trim()) return
+    setEditLoading(true)
+    try {
+      const updated = await projectsApi.update(editProject.id, {
+        name: editName.trim(),
+        description: editDescription,
+      })
+      setProjects(p => p.map(pr => pr.id === editProject.id ? { ...pr, ...updated } : pr))
+      setEditProject(null)
+      toast.success('Проект обновлён')
+    } catch {
+      toast.error('Ошибка сохранения')
+    } finally {
+      setEditLoading(false)
     }
   }
 
@@ -71,6 +100,36 @@ export function ProjectsPage() {
           </Button>
         )}
       </div>
+
+      {/* Edit modal */}
+      {editProject && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-surface-1 border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl animate-slide-up">
+            <h2 className="text-lg font-semibold mb-4">Редактировать проект</h2>
+            <div className="flex flex-col gap-4">
+              <Input
+                label="Название"
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleEdit()}
+                autoFocus
+              />
+              <Input
+                label="Описание (необязательно)"
+                value={editDescription}
+                onChange={e => setEditDescription(e.target.value)}
+                placeholder="Краткое описание"
+              />
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <Button variant="secondary" onClick={() => setEditProject(null)}>Отмена</Button>
+              <Button onClick={handleEdit} loading={editLoading} disabled={!editName.trim()}>
+                Сохранить
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create modal */}
       {showCreate && (
@@ -129,12 +188,20 @@ export function ProjectsPage() {
                 <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
                   <FolderOpen size={18} className="text-accent" />
                 </div>
-                <button
-                  onClick={(e) => handleDelete(project.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-danger/20 text-muted hover:text-danger transition-all"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                  <button
+                    onClick={(e) => openEdit(project, e)}
+                    className="p-1.5 rounded-lg hover:bg-surface-2 text-muted hover:text-white transition-all"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDelete(project.id, e)}
+                    className="p-1.5 rounded-lg hover:bg-danger/20 text-muted hover:text-danger transition-all"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
               <h3 className="font-semibold text-white truncate">{project.name}</h3>
               {project.description && (

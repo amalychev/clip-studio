@@ -8,7 +8,7 @@ import { Textarea } from '../ui/Textarea'
 import { Select } from '../ui/Select'
 import { mediaApi, aiApi, BASE_URL } from '../../lib/api'
 import { AI_MODELS, PROVIDER_LABELS, type AIProvider } from '../../types'
-import { HelpCircle, ArrowLeft, ArrowRight, UploadCloud, X, ArrowUpDown, Image, Info, Wand2, AlertCircle, RefreshCw } from 'lucide-react'
+import { HelpCircle, ArrowLeft, ArrowRight, UploadCloud, X, ArrowUpDown, Image, Info, Wand2, AlertCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 
@@ -85,11 +85,6 @@ export function Step4_Images() {
   const providerKey = apiKeys[imageProvider]
   const promptProviderKey = apiKeys[promptProvider]
   const effectiveGenerateCount = Math.max(1, Math.min(99, generateCount || 1))
-
-  const hasGeneratedImage = (index: number) => {
-    const slot = String(index + 1).padStart(3, '0')
-    return images.some(img => img.filename.includes(`_generated_${slot}`))
-  }
 
   const updatePrompt = (index: number, value: string) => {
     setGeneratedPrompts(prev => prev.map((p, i) => i === index ? value : p))
@@ -192,9 +187,7 @@ export function Step4_Images() {
         url: `${BASE_URL}/media/images/${projectId}/${result.filename}`,
         order: result.order,
       }
-      const slotStr = String(slot).padStart(3, '0')
-      const withoutOld = images.filter(img => !img.filename.includes(`_generated_${slotStr}`))
-      setImages([...withoutOld, newImg].map((img, i) => ({ ...img, order: i })))
+      addImages([newImg])
       toast.success('Изображение создано')
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || 'Ошибка генерации изображения')
@@ -338,10 +331,10 @@ export function Step4_Images() {
                     onClick={() => handleGenerateSingleImage(index)}
                     loading={generatingSlots.has(index)}
                     disabled={!providerKey}
-                    icon={hasGeneratedImage(index) ? <RefreshCw size={13} /> : <Image size={13} />}
+                    icon={<Image size={13} />}
                     className="shrink-0 mt-0.5"
                   >
-                    {hasGeneratedImage(index) ? 'Перегенерировать' : 'Создать'}
+                    Создать
                   </Button>
                 </div>
               ))}

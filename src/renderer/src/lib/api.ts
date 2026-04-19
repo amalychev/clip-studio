@@ -31,7 +31,7 @@ export const aiApi = {
   generateImages: (data: { provider: string; model: string; api_key: string; project_id: string; source_text: string; creative_direction: string; count: number; prompts?: string[] }) =>
     api.post('/ai/generate-images', data).then(r => r.data),
   generateSingleImage: (data: { provider: string; model: string; api_key: string; project_id: string; prompt: string; slot: number }) =>
-    api.post('/ai/generate-single-image', data, { timeout: 180000 }).then(r => r.data),
+    api.post('/ai/generate-image', data, { timeout: 180000 }).then(r => r.data),
 }
 
 export const videoApi = {
@@ -105,6 +105,8 @@ export const mediaApi = {
 export const subtitleApi = {
   generate: (data: { text: string; duration: number; project_id: string }) =>
     api.post('/subtitles/generate', data).then(r => r.data),
+  generateFromAudio: (data: { project_id: string; audio_filename: string; model_size?: string }) =>
+    api.post('/subtitles/generate-from-audio', data, { timeout: 300000 }).then(r => r.data),
   save: (data: { subtitles: object[]; project_id: string }) =>
     api.post('/subtitles/save', data).then(r => r.data),
 }

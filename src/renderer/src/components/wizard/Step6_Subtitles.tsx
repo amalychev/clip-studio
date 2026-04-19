@@ -5,8 +5,17 @@ import { Tooltip } from '../ui/Tooltip'
 import { Badge } from '../ui/Badge'
 import { subtitleApi } from '../../lib/api'
 import type { SubtitleEntry } from '../../types'
-import { HelpCircle, ArrowLeft, ArrowRight, Subtitles, Wand2 } from 'lucide-react'
+import { HelpCircle, ArrowLeft, ArrowRight, Subtitles, Wand2, Mic } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+function pluralLines(n: number) {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 14) return 'строк'
+  if (mod10 === 1) return 'строка'
+  if (mod10 >= 2 && mod10 <= 4) return 'строки'
+  return 'строк'
+}
 
 function formatTime(s: number) {
   const h = Math.floor(s / 3600)
@@ -17,9 +26,10 @@ function formatTime(s: number) {
 }
 
 export function Step6_Subtitles() {
-  const { rawText, audioDuration, subtitles, projectId,
+  const { rawText, audioDuration, audioFilename, subtitles, projectId,
     setSubtitles, updateSubtitle, nextStep, prevStep } = useWizardStore()
   const [loading, setLoading] = useState(false)
+  const [audioLoading, setAudioLoading] = useState(false)
 
   const handleGenerate = async () => {
     if (!projectId) return
@@ -39,6 +49,23 @@ export function Step6_Subtitles() {
     }
   }
 
+  const handleGenerateFromAudio = async () => {
+    if (!projectId || !audioFilename) return
+    setAudioLoading(true)
+    try {
+      const res = await subtitleApi.generateFromAudio({
+        project_id: projectId,
+        audio_filename: audioFilename,
+      })
+      setSubtitles(res.subtitles)
+      toast.success(`${res.subtitles.length} субтитров из аудио`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Ошибка транскрипции аудио')
+    } finally {
+      setAudioLoading(false)
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto w-full animate-slide-up flex flex-col gap-6">
       <div className="flex items-center gap-2">
@@ -47,33 +74,55 @@ export function Step6_Subtitles() {
           <HelpCircle size={16} className="text-muted" />
         </Tooltip>
         {subtitles.length > 0 && (
-          <Badge variant="success" className="ml-auto">{subtitles.length} строк</Badge>
+          <Badge variant="success" className="ml-auto">{subtitles.length} {pluralLines(subtitles.length)}</Badge>
         )}
       </div>
 
-      <div className="flex items-center gap-4">
-        <Button onClick={handleGenerate} loading={loading} icon={<Wand2 size={16} />}>
-          {subtitles.length > 0 ? 'Перегенерировать' : 'Создать субтитры'}
-        </Button>
-        {audioDuration > 0 && (
-          <span className="text-sm text-muted">
-            Длительность аудио: {Math.floor(audioDuration / 60)}:{String(Math.floor(audioDuration % 60)).padStart(2,'0')}
-          </span>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {audioFilename ? (
+            <Tooltip content="Whisper транскрибирует TTS-аудио и даёт точные тайминги для каждого слова. При первом запуске скачает модель (~480 МБ).">
+              <Button
+                onClick={handleGenerateFromAudio}
+                loading={audioLoading}
+                disabled={loading}
+                icon={<Mic size={16} />}
+              >
+                {subtitles.length > 0 ? 'Перегенерировать из аудио' : 'Из аудио (точные тайминги)'}
+              </Button>
+            </Tooltip>
+          ) : null}
+          <Button
+            variant={audioFilename ? 'secondary' : 'primary'}
+            onClick={handleGenerate}
+            loading={loading}
+            disabled={audioLoading}
+            icon={<Wand2 size={16} />}
+          >
+            {subtitles.length > 0 ? 'Перегенерировать по тексту' : 'По тексту (примерно)'}
+          </Button>
+          {audioDuration > 0 && (
+            <span className="text-sm text-muted ml-auto">
+              {Math.floor(audioDuration / 60)}:{String(Math.floor(audioDuration % 60)).padStart(2,'0')}
+            </span>
+          )}
+        </div>
+
+        {(audioLoading) && (
+          <p className="text-xs text-muted">
+            Транскрипция может занять 10–60 сек. в зависимости от длины аудио…
+          </p>
         )}
       </div>
 
-      <p className="text-xs text-muted">
-        Субтитры генерируются по исходному тексту со 2 шага, а не по тексту TTS с 3 шага.
-      </p>
-
-      {subtitles.length === 0 && !loading && (
+      {subtitles.length === 0 && !loading && !audioLoading && (
         <div className="flex flex-col items-center justify-center gap-4 py-14 rounded-xl border border-dashed border-border">
           <div className="w-14 h-14 rounded-2xl bg-surface-2 flex items-center justify-center">
             <Subtitles size={26} className="text-muted" />
           </div>
           <div className="text-center">
             <p className="text-sm font-medium text-white/70">Субтитры не созданы</p>
-            <p className="text-xs text-muted mt-1">Нажмите «Создать субтитры» или пропустите этот шаг</p>
+            <p className="text-xs text-muted mt-1">Нажмите «Из аудио» или пропустите этот шаг</p>
           </div>
         </div>
       )}

@@ -149,6 +149,8 @@ function StyleEditor({
 }) {
   const [draft, setDraft] = useState({
     fontSize: style.fontSize,
+    lineSpacing: style.lineSpacing ?? 135,
+    borderRadius: style.borderRadius ?? 0,
     bgOpacity: style.bgOpacity,
     positionMargin: style.positionMargin,
     textColor: style.textColor,
@@ -159,38 +161,64 @@ function StyleEditor({
   useEffect(() => {
     setDraft({
       fontSize: style.fontSize,
+      lineSpacing: style.lineSpacing ?? 150,
+      borderRadius: style.borderRadius ?? 30,
       bgOpacity: style.bgOpacity,
       positionMargin: style.positionMargin,
       textColor: style.textColor,
       bgColor: style.bgColor,
       activeWordColor: style.activeWordColor,
     })
-  }, [style.fontSize, style.bgOpacity, style.positionMargin, style.textColor, style.bgColor, style.activeWordColor])
+  }, [style.fontSize, style.lineSpacing, style.borderRadius, style.bgOpacity, style.positionMargin, style.textColor, style.bgColor, style.activeWordColor])
 
   return (
     <div className="bg-surface-1 border border-border rounded-xl p-3 h-full overflow-y-auto flex flex-col gap-3">
       <p className="text-xs font-semibold text-muted uppercase tracking-wider shrink-0">Стиль субтитров</p>
 
-      <div className="w-full">
-        <label className="text-xs text-muted">Размер {draft.fontSize}%</label>
-        <input type="range" min={1} max={15} step={0.5} value={draft.fontSize}
-          onChange={e => setDraft(prev => ({ ...prev, fontSize: +e.target.value }))}
-          onMouseUp={() => onChange({ fontSize: draft.fontSize })}
-          onTouchEnd={() => onChange({ fontSize: draft.fontSize })}
-          onKeyUp={() => onChange({ fontSize: draft.fontSize })}
-          onBlur={() => onChange({ fontSize: draft.fontSize })}
-          className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="w-full">
+          <label className="text-xs text-muted">Размер {draft.fontSize}%</label>
+          <input type="range" min={1} max={15} step={0.5} value={draft.fontSize}
+            onChange={e => setDraft(prev => ({ ...prev, fontSize: +e.target.value }))}
+            onMouseUp={() => onChange({ fontSize: draft.fontSize })}
+            onTouchEnd={() => onChange({ fontSize: draft.fontSize })}
+            onKeyUp={() => onChange({ fontSize: draft.fontSize })}
+            onBlur={() => onChange({ fontSize: draft.fontSize })}
+            className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+        </div>
+        <div className="w-full">
+          <label className="text-xs text-muted">Интервал {draft.lineSpacing}%</label>
+          <input type="range" min={100} max={250} step={5} value={draft.lineSpacing}
+            onChange={e => setDraft(prev => ({ ...prev, lineSpacing: +e.target.value }))}
+            onMouseUp={() => onChange({ lineSpacing: draft.lineSpacing })}
+            onTouchEnd={() => onChange({ lineSpacing: draft.lineSpacing })}
+            onKeyUp={() => onChange({ lineSpacing: draft.lineSpacing })}
+            onBlur={() => onChange({ lineSpacing: draft.lineSpacing })}
+            className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+        </div>
       </div>
 
-      <div className="w-full">
-        <label className="text-xs text-muted">Прозрачность фона {draft.bgOpacity}%</label>
-        <input type="range" min={0} max={100} value={draft.bgOpacity}
-          onChange={e => setDraft(prev => ({ ...prev, bgOpacity: +e.target.value }))}
-          onMouseUp={() => onChange({ bgOpacity: draft.bgOpacity })}
-          onTouchEnd={() => onChange({ bgOpacity: draft.bgOpacity })}
-          onKeyUp={() => onChange({ bgOpacity: draft.bgOpacity })}
-          onBlur={() => onChange({ bgOpacity: draft.bgOpacity })}
-          className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="w-full">
+          <label className="text-xs text-muted">Прозрачность {draft.bgOpacity}%</label>
+          <input type="range" min={0} max={100} value={draft.bgOpacity}
+            onChange={e => setDraft(prev => ({ ...prev, bgOpacity: +e.target.value }))}
+            onMouseUp={() => onChange({ bgOpacity: draft.bgOpacity })}
+            onTouchEnd={() => onChange({ bgOpacity: draft.bgOpacity })}
+            onKeyUp={() => onChange({ bgOpacity: draft.bgOpacity })}
+            onBlur={() => onChange({ bgOpacity: draft.bgOpacity })}
+            className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+        </div>
+        <div className="w-full">
+          <label className="text-xs text-muted">Закругление {draft.borderRadius}%</label>
+          <input type="range" min={0} max={50} step={5} value={draft.borderRadius}
+            onChange={e => setDraft(prev => ({ ...prev, borderRadius: +e.target.value }))}
+            onMouseUp={() => onChange({ borderRadius: draft.borderRadius })}
+            onTouchEnd={() => onChange({ borderRadius: draft.borderRadius })}
+            onKeyUp={() => onChange({ borderRadius: draft.borderRadius })}
+            onBlur={() => onChange({ borderRadius: draft.borderRadius })}
+            className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
+        </div>
       </div>
 
       <div className="flex gap-4">
@@ -386,7 +414,7 @@ function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, edgeBlurPro
                 background: `rgba(${hexToRgb(style.bgColor)},${style.bgOpacity / 100})`,
                 padding: `${box.h * style.fontSize / 100 * 0.22}px ${box.h * style.fontSize / 100 * 0.55}px`,
                 borderRadius: box.h * style.fontSize / 100 * 0.3,
-                lineHeight: 1.4,
+                lineHeight: `${style.lineSpacing ?? 160}%`,
                 textAlign: 'center',
                 display: 'inline-block',
                 maxWidth: '90%',

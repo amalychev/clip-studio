@@ -29,6 +29,18 @@ def _progress(stage: str, percent: int, message: str, done: bool = False, **extr
     return _sse({"stage": stage, "percent": percent, "message": message, "done": done, **extra})
 
 
+def _get_edge_transition_duration(
+    total_duration: float,
+    transition_duration: float,
+    enable_image_transitions: bool,
+) -> float:
+    if not enable_image_transitions or total_duration <= 0:
+        return 0.0
+    if transition_duration > 0:
+        return transition_duration
+    return min(0.45, total_duration / 2)
+
+
 def _build_ffmpeg_cmd(
     image_paths: list[str],
     audio_path: str,
@@ -122,17 +134,23 @@ def _build_ffmpeg_cmd(
         filter_parts.append(f"{concat_inputs}concat=n={len(image_paths)}:v=1:a=0[vcat]")
         current_video = "vcat"
 
-    edge_transition_duration = (
-        0.45 if enable_image_transitions and total_duration >= 0.9
-        else max(total_duration / 2, 0) if enable_image_transitions
-        else 0.0
+    edge_transition_duration = _get_edge_transition_duration(
+        total_duration=total_duration,
+        transition_duration=transition_duration,
+        enable_image_transitions=enable_image_transitions,
     )
     if edge_transition_duration > 0:
-        edge_enable = (
-            f"between(t,0,{edge_transition_duration:.3f})+"
-            f"between(t,{max(total_duration - edge_transition_duration, 0):.3f},{total_duration:.3f})"
+        edge_end_start = max(total_duration - edge_transition_duration, 0)
+        edge_mix_expr = (
+            f"min(1,"
+            f"if(lt(T,{edge_transition_duration:.3f}),pow(1-T/{edge_transition_duration:.3f},2),0)+"
+            f"if(gte(T,{edge_end_start:.3f}),pow((T-{edge_end_start:.3f})/{edge_transition_duration:.3f},2),0))"
         )
-        filter_parts.append(f"[{current_video}]gblur=sigma=12:enable='{edge_enable}'[vedge]")
+        filter_parts.append(f"[{current_video}]split[vedgebase][vedgeblurin]")
+        filter_parts.append("[vedgeblurin]gblur=sigma=8[vedgeblur]")
+        filter_parts.append(
+            f"[vedgebase][vedgeblur]blend=all_expr='A*(1-({edge_mix_expr}))+B*({edge_mix_expr})'[vedge]"
+        )
         current_video = "vedge"
 
     # ASS subtitles: style embedded in file, PlayRes matches video dims → exact pixel sizes

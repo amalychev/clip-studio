@@ -35,6 +35,15 @@ class ImagePromptRequest(BaseModel):
     count: int
 
 
+class SingleImageGenerateRequest(BaseModel):
+    provider: str
+    model: str
+    api_key: str
+    project_id: str
+    prompt: str
+    slot: int
+
+
 class SingleImageRequest(BaseModel):
     provider: str
     model: str
@@ -132,5 +141,30 @@ async def generate_image_prompts(body: ImagePromptRequest):
             count=body.count,
         )
         return {"prompts": prompts}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.post("/generate-image")
+async def generate_image(body: SingleImageGenerateRequest):
+    if not body.api_key:
+        raise HTTPException(400, "API key is required")
+    if not body.prompt.strip():
+        raise HTTPException(400, "Prompt is required")
+    if body.slot < 1:
+        raise HTTPException(400, "Slot must be at least 1")
+
+    try:
+        from services.image_generation_service import generate_single_image_for_slot
+
+        image = await generate_single_image_for_slot(
+            project_id=body.project_id,
+            provider=body.provider,
+            model=body.model,
+            api_key=body.api_key,
+            prompt=body.prompt,
+            slot=body.slot,
+        )
+        return {"image": image}
     except Exception as e:
         raise HTTPException(500, str(e))

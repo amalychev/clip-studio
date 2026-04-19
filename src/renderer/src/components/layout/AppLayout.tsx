@@ -20,7 +20,7 @@ export function AppLayout({ children }: Props) {
       <aside className="w-56 flex flex-col bg-surface-1 border-r border-border shrink-0">
         {/* Logo — pt-8 leaves room for macOS traffic lights (hiddenInset) */}
         <div className="flex items-center gap-2.5 px-4 pt-10 pb-4 border-b border-border drag-region">
-          <img src={logoUrl} alt="Clip Studio" className="w-7 h-7 rounded-lg object-cover" />
+          <img src={logoUrl} alt="Clip Studio" className="w-8 h-8 rounded-lg object-cover" />
           <span className="font-semibold text-sm text-white">Clip Studio</span>
         </div>
 

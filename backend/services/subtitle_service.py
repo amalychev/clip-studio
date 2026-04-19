@@ -1,36 +1,63 @@
 import re
+import textwrap
 from pathlib import Path
 from database import DATA_DIR
 from services.project_naming import get_project_slug
 
 WORD_RE = re.compile(r'[^\s.,!?;:()"«»]+', re.UNICODE)
+SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?…])(?:["»)]*)\s+|\n+')
+
+
+def _split_long_sentence(sentence: str, max_chars: int) -> list[str]:
+    """Prefer commas for oversized sentences; fall back to word boundaries only if needed."""
+    parts = [part.strip() for part in re.split(r'(?<=,)\s*', sentence) if part.strip()]
+    if len(parts) <= 1:
+        parts = [sentence.strip()]
+
+    segments: list[str] = []
+    current = ""
+    for part in parts:
+        candidate = f"{current} {part}".strip() if current else part
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+
+        if current:
+            segments.append(current.strip())
+
+        if len(part) <= max_chars:
+            current = part
+            continue
+
+        # Still too long: only now split by words.
+        words = part.split()
+        current = ""
+        for word in words:
+            word_candidate = f"{current} {word}".strip() if current else word
+            if len(word_candidate) <= max_chars:
+                current = word_candidate
+            else:
+                if current:
+                    segments.append(current.strip())
+                current = word
+
+    if current:
+        segments.append(current.strip())
+    return segments
 
 
 def _split_into_segments(text: str, max_chars: int = 80) -> list[str]:
-    """Split text into subtitle segments of reasonable length."""
-    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-    segments = []
+    """Split subtitles with priority on sentence boundaries, then commas if the sentence is too long."""
+    raw_parts = SENTENCE_SPLIT_RE.split(text.strip())
+    sentences = [part.strip() for part in raw_parts if part and part.strip()]
+    segments: list[str] = []
+
     for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
         if len(sentence) <= max_chars:
             segments.append(sentence)
         else:
-            # Split long sentences by comma or at word boundaries
-            parts = re.split(r',\s*', sentence)
-            current = ""
-            for part in parts:
-                if not current:
-                    current = part
-                elif len(current) + len(part) + 2 <= max_chars:
-                    current += ", " + part
-                else:
-                    if current:
-                        segments.append(current.strip())
-                    current = part
-            if current:
-                segments.append(current.strip())
+            segments.extend(_split_long_sentence(sentence, max_chars))
+
     return segments if segments else [text.strip()]
 
 
@@ -155,6 +182,20 @@ def _build_ass_highlight_text(text: str, active_word_index: int) -> str:
     return "".join(parts)
 
 
+def _highlight_line(line_text: str, word_offset: int, active_word_index: int) -> str:
+    """Build ASS highlight text for a single pre-wrapped line."""
+    parts: list[str] = []
+    for token in _split_word_tokens(line_text):
+        escaped = _escape_ass_text(str(token["text"]))
+        if not token["is_word"]:
+            parts.append(r"{\alpha&HFF&}" + escaped)
+        elif token["word_index"] + word_offset == active_word_index:
+            parts.append(r"{\alpha&H00&}" + escaped)
+        else:
+            parts.append(r"{\alpha&HFF&}" + escaped)
+    return "".join(parts)
+
+
 def save_subtitles_ass(
     subtitles: list[dict],
     project_id: str,
@@ -176,35 +217,69 @@ def save_subtitles_ass(
         old.unlink(missing_ok=True)
 
     font_size = max(8, int(height * style.get("fontSize", 2.5) / 100))
-    outline = max(1, font_size // 5)
+    line_spacing_ratio = max(100, min(300, style.get("lineSpacing", 150))) / 100
+    line_spacing_px = font_size * line_spacing_ratio
+    # borderRadius as % of font_size → outline radius for rounded corners.
+    # Technique: Layer 0 renders the text in bg_color with a large border of the
+    # same color — this fills the glyph area + extends outward creating a rounded
+    # blob. Layer 1 renders the actual text with no background on top.
+    border_radius_pct = max(0, min(50, style.get("borderRadius", 30)))
+    radius_px = int(font_size * border_radius_pct / 100)
+    rounded = radius_px > 0
+    # For square boxes (radius=0) keep the simpler BorderStyle=3 path.
+    box_outline = max(1, font_size // 5)  # padding for BorderStyle=3
     text_color = _hex_to_ass(style.get("textColor", "#ffffff"), 100)
     active_word_color = _hex_to_ass(style.get("activeWordColor", "#facc15"), 100)
+    bg_color_opaque = _hex_to_ass(style.get("bgColor", "#2563eb"), 100)
     bg_color = _hex_to_ass(style.get("bgColor", "#2563eb"), style.get("bgOpacity", 100))
     transparent = "&HFF000000"
     bold = -1 if style.get("bold", True) else 0
     highlight_active_word = bool(style.get("highlightActiveWord", True))
     pos = style.get("position", "bottom")
-    alignment = 2 if pos == "bottom" else (8 if pos == "top" else 5)
     margin_v = int(height * style.get("positionMargin", 5) / 100)
     margin_h = int(width * 0.05)
+
+    an = 2 if pos == "bottom" else (8 if pos == "top" else 5)
+    cx = width // 2
+    chars_per_line = max(10, int((width - 2 * margin_h) / (font_size * 0.52)))
+
+    fmt = ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+           "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
+           "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")
+
+    if rounded:
+        # TextBg: glyph + border both in bg_color → solid rounded blob
+        # TextFg: text only, no background (BorderStyle=1, Outline=0)
+        style_bg = (f"Style: TextBg,Arial,{font_size},{bg_color_opaque},{bg_color_opaque},"
+                    f"{bg_color_opaque},{transparent},"
+                    f"{bold},0,0,0,100,100,0,0,1,{radius_px},0,{an},0,0,0,1")
+        style_fg = (f"Style: TextFg,Arial,{font_size},{text_color},{text_color},"
+                    f"{transparent},{transparent},"
+                    f"{bold},0,0,0,100,100,0,0,1,0,0,{an},0,0,0,1")
+        style_aw = (f"Style: ActiveWord,Arial,{font_size},{active_word_color},{active_word_color},"
+                    f"{transparent},{transparent},"
+                    f"-1,0,0,0,100,100,0,0,1,0,0,{an},0,0,0,1")
+        styles_block = f"{style_bg}\n{style_fg}\n{style_aw}"
+    else:
+        style_def = (f"Style: Default,Arial,{font_size},{text_color},{text_color},"
+                     f"{bg_color},{bg_color},"
+                     f"{bold},0,0,0,100,100,0,0,3,{box_outline},0,{an},0,0,0,1")
+        style_aw = (f"Style: ActiveWord,Arial,{font_size},{active_word_color},{active_word_color},"
+                    f"{transparent},{transparent},"
+                    f"-1,0,0,0,100,100,0,0,1,0,0,{an},0,0,0,1")
+        styles_block = f"{style_def}\n{style_aw}"
 
     header = "\n".join([
         "[Script Info]",
         "ScriptType: v4.00+",
         f"PlayResX: {width}",
         f"PlayResY: {height}",
-        "WrapStyle: 0",
+        "WrapStyle: 2",
         "ScaledBorderAndShadow: yes",
         "",
         "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
-        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
-        "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        # OutlineColour = BackColour so the box color is correct in all libass versions
-        f"Style: Default,Arial,{font_size},{text_color},{text_color},{bg_color},{bg_color},"
-        f"{bold},0,0,0,100,100,0,0,3,{outline},0,{alignment},{margin_h},{margin_h},{margin_v},1",
-        f"Style: ActiveWord,Arial,{font_size},{active_word_color},{active_word_color},{transparent},{transparent},"
-        f"-1,0,0,0,100,100,0,0,1,0,0,{alignment},{margin_h},{margin_h},{margin_v},1",
+        fmt,
+        styles_block,
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -214,16 +289,58 @@ def save_subtitles_ass(
     for sub in subtitles:
         start = _format_ass_time(sub["startTime"] + time_offset)
         end = _format_ass_time(sub["endTime"] + time_offset)
-        text = _escape_ass_text(str(sub["text"]))
-        events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
+        sub_text = str(sub["text"])
 
-        words = sub.get("words") or _build_word_timings(str(sub["text"]), float(sub["startTime"]), float(sub["endTime"]))
+        lines = textwrap.wrap(sub_text.strip(), width=chars_per_line,
+                              break_long_words=False, break_on_hyphens=False) or [sub_text.strip()]
+        n = len(lines)
+
+        # Offset y_base so the border doesn't overflow the margin edge
+        r_adj = radius_px if rounded else 0
+        if pos == "bottom":
+            y_base = height - margin_v - r_adj
+            line_ys = [y_base - (n - 1 - i) * line_spacing_px for i in range(n)]
+        elif pos == "top":
+            y_base = margin_v + r_adj
+            line_ys = [y_base + i * line_spacing_px for i in range(n)]
+        else:
+            block_h = (n - 1) * line_spacing_px
+            y_base = height / 2 - block_h / 2
+            line_ys = [y_base + i * line_spacing_px for i in range(n)]
+
+        for i, line_text in enumerate(lines):
+            ly = round(line_ys[i])
+            esc = _escape_ass_text(line_text)
+            pos_tag = f"{{\\an{an}\\pos({cx},{ly})}}"
+            if rounded:
+                events.append(f"Dialogue: 0,{start},{end},TextBg,,0,0,0,,{pos_tag}{esc}")
+                events.append(f"Dialogue: 1,{start},{end},TextFg,,0,0,0,,{pos_tag}{esc}")
+            else:
+                events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{pos_tag}{esc}")
+
+        words = sub.get("words") or _build_word_timings(sub_text, float(sub["startTime"]), float(sub["endTime"]))
         if highlight_active_word and words:
+            line_word_counts = [len(WORD_RE.findall(l)) for l in lines]
+            word_offsets: list[int] = [0]
+            for c in line_word_counts[:-1]:
+                word_offsets.append(word_offsets[-1] + c)
+
+            aw_layer = 2 if rounded else 1
             for word_index, word in enumerate(words):
                 word_start = _format_ass_time(float(word["startTime"]) + time_offset)
                 word_end = _format_ass_time(float(word["endTime"]) + time_offset)
-                highlight_text = _build_ass_highlight_text(str(sub["text"]), word_index)
-                events.append(f"Dialogue: 1,{word_start},{word_end},ActiveWord,,0,0,0,,{highlight_text}")
+
+                li = 0
+                for k in range(1, len(word_offsets)):
+                    if word_index >= word_offsets[k]:
+                        li = k
+                    else:
+                        break
+
+                ly = round(line_ys[li])
+                hl = _highlight_line(lines[li], word_offsets[li], word_index)
+                pos_tag = f"{{\\an{an}\\pos({cx},{ly})}}"
+                events.append(f"Dialogue: {aw_layer},{word_start},{word_end},ActiveWord,,0,0,0,,{pos_tag}{hl}")
 
     ass_path.write_text(header + "\n" + "\n".join(events) + "\n", encoding="utf-8")
     return ass_path

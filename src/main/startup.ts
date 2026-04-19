@@ -252,11 +252,25 @@ export async function runStartup(backendDir: string, win: BrowserWindow): Promis
       },
     })
   } else {
-    // Quick update check (fast with uv)
+    // Quick update — always re-sync pyproject.toml deps (catches newly added packages)
     send({ stage: 'deps', message: 'Проверка зависимостей...', percent: 37 })
     await runStream(UV_BIN, ['pip', 'install', '-e', backendDir, '--python', VENV_PYTHON], {
       onLine: l => send({ stage: 'deps', message: l.slice(0, 80), percent: 50, log: l }),
     })
+
+    // Explicit check for optional heavy deps that may have been added after initial install
+    const whisperOk = (() => {
+      try {
+        execSync(`"${VENV_PYTHON}" -c "import whisper"`, { stdio: 'ignore', timeout: 10000 })
+        return true
+      } catch { return false }
+    })()
+    if (!whisperOk) {
+      send({ stage: 'deps', message: 'Установка Whisper (распознавание речи)...', percent: 55 })
+      await runStream(UV_BIN, ['pip', 'install', 'openai-whisper', '--python', VENV_PYTHON], {
+        onLine: l => send({ stage: 'deps', message: l.slice(0, 80), percent: 60, log: l }),
+      })
+    }
   }
 
   send({ stage: 'deps', message: 'Зависимости установлены', percent: 78 })

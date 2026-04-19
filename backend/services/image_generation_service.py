@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 
 import httpx
 from database import DATA_DIR
@@ -137,9 +138,8 @@ def _save_generated_image(project_id: str, slot: int, image_bytes: bytes, extens
     images_dir = DATA_DIR / "projects" / project_id / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     project_slug = get_project_slug(project_id)
-    filename = f"{project_slug}_generated_{slot:03d}{extension}"
-    for old in images_dir.glob(f"*_generated_{slot:03d}.*"):
-        old.unlink(missing_ok=True)
+    ts = int(time.time() * 1000)
+    filename = f"{project_slug}_generated_{slot:03d}_{ts}{extension}"
     path = images_dir / filename
     path.write_bytes(image_bytes)
     return {"id": filename, "filename": filename, "order": slot - 1}
@@ -185,7 +185,6 @@ async def _generate_image_openai(model: str, api_key: str, prompt: str) -> bytes
 async def _generate_image_gemini(client: httpx.AsyncClient, model: str, api_key: str, prompt: str) -> tuple[bytes, str]:
     full_prompt = _build_image_generation_prompt(prompt)
 
-    # All Gemini image models use generateContent with key as query param
     response = await client.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         params={"key": api_key},

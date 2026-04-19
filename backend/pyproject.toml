@@ -38,6 +38,9 @@ dependencies = [
   "ffmpeg-python>=0.2,<1",
   "mutagen>=1.47,<2",
 
+  # Speech recognition (word-level subtitle timing)
+  "openai-whisper>=20231117",
+
   # Utilities
   "pydantic>=2.0,<3",
   "pydantic-settings>=2.0,<3",
