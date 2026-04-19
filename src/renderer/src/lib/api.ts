@@ -103,7 +103,7 @@ export const mediaApi = {
 
 // Subtitles
 export const subtitleApi = {
-  generate: (data: { text: string; duration: number; project_id: string }) =>
+  generate: (data: { text: string; duration: number; project_id: string; split_by_words?: boolean }) =>
     api.post('/subtitles/generate', data).then(r => r.data),
   generateFromAudio: (data: { project_id: string; audio_filename: string; model_size?: string }) =>
     api.post('/subtitles/generate-from-audio', data, { timeout: 300000 }).then(r => r.data),

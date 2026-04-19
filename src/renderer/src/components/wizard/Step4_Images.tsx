@@ -181,11 +181,12 @@ export function Step4_Images() {
         prompt,
         slot,
       })
+      const img = result.image
       const newImg = {
-        id: result.filename,
-        filename: result.filename,
-        url: `${BASE_URL}/media/images/${projectId}/${result.filename}`,
-        order: result.order,
+        id: img.id ?? img.filename,
+        filename: img.filename,
+        url: `${BASE_URL}/media/images/${projectId}/${img.filename}`,
+        order: img.order,
       }
       addImages([newImg])
       toast.success('Изображение создано')

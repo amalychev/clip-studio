@@ -30,6 +30,7 @@ export function Step6_Subtitles() {
     setSubtitles, updateSubtitle, nextStep, prevStep } = useWizardStore()
   const [loading, setLoading] = useState(false)
   const [audioLoading, setAudioLoading] = useState(false)
+  const [splitByWords, setSplitByWords] = useState(false)
 
   const handleGenerate = async () => {
     if (!projectId) return
@@ -39,6 +40,7 @@ export function Step6_Subtitles() {
         text: preparedText,
         duration: audioDuration,
         project_id: projectId,
+        split_by_words: splitByWords,
       })
       setSubtitles(res.subtitles)
       toast.success(`${res.subtitles.length} субтитров создано`)
@@ -88,6 +90,22 @@ export function Step6_Subtitles() {
       </div>
 
       <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2 text-sm">
+          <button
+            type="button"
+            onClick={() => setSplitByWords(false)}
+            className={`px-3 py-1 rounded-md transition-colors ${!splitByWords ? 'bg-accent-500 text-white' : 'bg-surface-2 text-muted hover:text-white'}`}
+          >
+            По фразам
+          </button>
+          <button
+            type="button"
+            onClick={() => setSplitByWords(true)}
+            className={`px-3 py-1 rounded-md transition-colors ${splitByWords ? 'bg-accent-500 text-white' : 'bg-surface-2 text-muted hover:text-white'}`}
+          >
+            По словам
+          </button>
+        </div>
         <div className="flex items-center gap-3 flex-wrap">
           <Button
             variant="primary"

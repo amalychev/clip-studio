@@ -111,7 +111,10 @@ def _build_word_timings(text: str, start_time: float, end_time: float) -> list[d
     return words
 
 
-def generate_subtitles(text: str, duration: float) -> list[dict]:
+def generate_subtitles(text: str, duration: float, split_by_words: bool = False) -> list[dict]:
+    if split_by_words:
+        return _generate_by_words(text, duration)
+
     segments = _split_into_segments(text)
     if not segments:
         return []
@@ -135,6 +138,35 @@ def generate_subtitles(text: str, duration: float) -> list[dict]:
             "words": _build_word_timings(segment, current_time, end_time),
         })
         current_time = end_time + 0.1
+
+        if current_time >= duration:
+            break
+
+    return subtitles
+
+
+def _generate_by_words(text: str, duration: float) -> list[dict]:
+    words = WORD_RE.findall(text)
+    if not words:
+        return []
+
+    total_chars = sum(max(len(w), 1) for w in words)
+    subtitles = []
+    current_time = 0.0
+
+    for i, word in enumerate(words):
+        char_ratio = max(len(word), 1) / total_chars
+        seg_duration = max(0.15, min(2.0, duration * char_ratio))
+        end_time = min(current_time + seg_duration, duration)
+
+        subtitles.append({
+            "index": i + 1,
+            "startTime": round(current_time, 3),
+            "endTime": round(end_time, 3),
+            "text": word,
+            "words": [{"text": word, "startTime": round(current_time, 3), "endTime": round(end_time, 3)}],
+        })
+        current_time = end_time
 
         if current_time >= duration:
             break

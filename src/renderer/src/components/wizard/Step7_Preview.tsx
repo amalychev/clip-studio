@@ -886,7 +886,7 @@ export function Step7_Preview() {
   const timelineImages = timelineImageIds
     .map(id => images.find(img => img.id === id))
     .filter(Boolean) as UploadedImage[]
-  const timelineImageFilenames = timelineImages.map(image => image.filename)
+  const timelineImageFilenames = timelineImages.map(image => image.filename).filter(Boolean) as string[]
 
   const totalDuration = audioDuration > 0 ? audioDuration + LEAD_IN + LEAD_OUT : 0
   const imageDuration = totalDuration > 0 && timelineImages.length > 0 ? totalDuration / timelineImages.length : 5
@@ -1012,7 +1012,8 @@ export function Step7_Preview() {
       if (abortController.signal.aborted) return
       if (requestId !== previewRequestRef.current) return
       setPreviewStatus('error')
-      setPreviewError(error?.response?.data?.detail || 'Не удалось обновить preview.mp4')
+      const detail = error?.response?.data?.detail
+      setPreviewError(Array.isArray(detail) ? detail.map((d: any) => d.msg ?? String(d)).join('; ') : detail || 'Не удалось обновить preview.mp4')
     } finally {
       if (previewAbortRef.current === abortController) {
         previewAbortRef.current = null

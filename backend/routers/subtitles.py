@@ -11,6 +11,7 @@ class SubtitleGenRequest(BaseModel):
     text: str
     duration: float
     project_id: str
+    split_by_words: bool = False
 
 
 class SubtitleAudioRequest(BaseModel):
@@ -28,7 +29,7 @@ class SubtitleSaveRequest(BaseModel):
 def generate(body: SubtitleGenRequest):
     if body.duration <= 0:
         raise HTTPException(400, "Duration must be > 0")
-    subs = generate_subtitles(body.text, body.duration)
+    subs = generate_subtitles(body.text, body.duration, split_by_words=body.split_by_words)
     return {"subtitles": subs}
 
 
