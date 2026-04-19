@@ -1,4 +1,3 @@
-import uuid
 import mutagen
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
@@ -38,9 +37,11 @@ async def tts_generate(body: TTSRequest):
     except Exception as e:
         raise HTTPException(500, f"TTS synthesis failed: {e}")
 
-    filename = f"tts_{uuid.uuid4().hex[:8]}.{fmt}"
+    filename = f"tts.{fmt}"
     audio_dir = DATA_DIR / "projects" / body.project_id / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
+    for old in audio_dir.glob("tts.*"):
+        old.unlink(missing_ok=True)
     (audio_dir / filename).write_bytes(audio_bytes)
 
     duration = 0.0

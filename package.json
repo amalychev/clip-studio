@@ -1,5 +1,6 @@
 {
   "name": "clip-studio",
+  "productName": "Clip Studio",
   "version": "0.1.0",
   "description": "Social media video generation studio",
   "main": "out/main/index.js",
@@ -44,22 +45,28 @@
   "build": {
     "appId": "com.clipstudio.app",
     "productName": "Clip Studio",
+    "executableName": "Clip Studio",
+    "icon": "build/icon.png",
     "directories": { "output": "dist" },
     "files": ["out/**/*"],
     "asarUnpack": [
       "**/node_modules/ffmpeg-static/**"
     ],
     "extraResources": [
-      { "from": "backend", "to": "backend", "filter": ["**/*", "!.venv/**", "!**/__pycache__/**", "!**/*.pyc"] }
+      { "from": "backend", "to": "backend", "filter": ["**/*", "!.venv/**", "!**/__pycache__/**", "!**/*.pyc"] },
+      { "from": "assets", "to": "assets", "filter": ["**/*"] }
     ],
     "mac": {
+      "icon": "build/icon.png",
       "category": "public.app-category.video",
       "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }]
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [{ "target": "nsis", "arch": ["x64"] }]
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [{ "target": "AppImage", "arch": ["x64"] }]
     }
   }

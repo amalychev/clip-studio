@@ -15,7 +15,8 @@ export function Step8_Export() {
   const {
     projectId, exportFormats, exportProgress, exportedFiles,
     toggleFormat, setExportProgress, setExportedFiles, prevStep,
-    audioFilename, audioDuration, images, timelineImageIds, selectedMusicId, musicVolume, subtitles, subtitleStyle, speechVolume,
+    audioFilename, audioDuration, images, timelineImageIds, selectedMusicId, musicVolume,
+    subtitles, subtitleStyle, speechVolume, enableImageTransitions, watermarkFilename,
   } = useWizardStore()
 
   const timelineImages = timelineImageIds.length
@@ -43,6 +44,8 @@ export function Step8_Export() {
       lead_in: 2,
       lead_out: 2,
       audio_duration: audioDuration,
+      enable_image_transitions: enableImageTransitions,
+      watermark_filename: watermarkFilename,
     }
 
     try {

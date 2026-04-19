@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
-  Clapperboard, CheckCircle2, AlertCircle, RefreshCw,
+  CheckCircle2, AlertCircle, RefreshCw,
 } from 'lucide-react'
+import logoUrl from '../assets/clip-studio-logo.png'
 
 interface ProgressData {
   stage: string
@@ -93,7 +94,7 @@ const handleRetry = async () => {
               ? <CheckCircle2 size={32} className="text-success" />
               : error
               ? <AlertCircle size={32} className="text-danger" />
-              : <Clapperboard size={32} className={clsx('text-accent', !done && 'animate-pulse')} />
+              : <img src={logoUrl} alt="Clip Studio" className={clsx('w-9 h-9 rounded-xl object-cover', !done && 'animate-pulse')} />
             }
           </div>
           <div className="text-center">

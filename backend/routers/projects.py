@@ -1,4 +1,5 @@
 import uuid
+import shutil
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -40,6 +41,7 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
     (proj_dir / "audio").mkdir(parents=True, exist_ok=True)
     (proj_dir / "video").mkdir(parents=True, exist_ok=True)
     (proj_dir / "subtitles").mkdir(parents=True, exist_ok=True)
+    (proj_dir / "watermark").mkdir(parents=True, exist_ok=True)
 
     return project.to_dict()
 
@@ -75,6 +77,9 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(404, "Project not found")
+    proj_dir = DATA_DIR / "projects" / project_id
     db.delete(project)
     db.commit()
+    if proj_dir.exists():
+        shutil.rmtree(proj_dir, ignore_errors=True)
     return {"ok": True}

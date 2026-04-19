@@ -26,6 +26,8 @@ export const settingsApi = {
 export const aiApi = {
   prepare: (data: { text: string; provider: string; model: string; api_key: string; project_id: string }) =>
     api.post('/ai/prepare', data).then(r => r.data),
+  generateImages: (data: { provider: string; model: string; api_key: string; project_id: string; source_text: string; creative_direction: string; count: number }) =>
+    api.post('/ai/generate-images', data).then(r => r.data),
 }
 
 // TTS (runs in-process via Silero — no external service needed)
@@ -47,6 +49,15 @@ export const mediaApi = {
   listImages: (projectId: string) => api.get(`/media/images/${projectId}`).then(r => r.data),
   deleteImage: (projectId: string, filename: string) =>
     api.delete(`/media/images/${projectId}/${filename}`).then(r => r.data),
+  uploadWatermark: (projectId: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post(`/media/watermark/${projectId}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  deleteWatermark: (projectId: string, filename: string) =>
+    api.delete(`/media/watermark/${projectId}/${filename}`).then(r => r.data),
   listMusic: () => api.get('/media/music').then(r => r.data),
   uploadMusic: (file: File) => {
     const form = new FormData()

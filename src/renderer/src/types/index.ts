@@ -10,8 +10,7 @@ export interface ProjectSettings {
   id: string
   name: string
   description?: string
-  watermarkText: string
-  watermarkOpacity: number
+  watermarkFilename?: string | null
   ttsUrl: string
   ttsVoice: string
   aiProvider: AIProvider
@@ -79,6 +78,8 @@ export interface WizardState {
   selectedMusicId: string | null
   musicVolume: number
   enableImageTransitions: boolean
+  watermarkFilename: string | null
+  watermarkUrl: string | null
 
   subtitles: SubtitleEntry[]
   subtitleStyle: SubtitleStyle

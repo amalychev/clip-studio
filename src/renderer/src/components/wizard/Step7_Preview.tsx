@@ -247,11 +247,13 @@ function getTransitionDuration(imageDuration: number) {
 // Owns its outer container (flex-1). Uses ResizeObserver to compute the
 // correct pixel dimensions for the selected aspect ratio.
 
-function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, transitionsEnabled, subtitle, subtitleTime, style, formatId }: {
+function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, edgeBlurProgress, transitionsEnabled, watermarkUrl, subtitle, subtitleTime, style, formatId }: {
   imageUrl: string | null
   nextImageUrl: string | null
   transitionProgress: number
+  edgeBlurProgress: number
   transitionsEnabled: boolean
+  watermarkUrl: string | null
   subtitle: SubtitleEntry | null
   subtitleTime: number
   style: SubtitleStyle
@@ -282,6 +284,13 @@ function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, transitions
   const margin = `${style.positionMargin ?? 5}%`
   const activeWordIndex = style.highlightActiveWord ? getActiveSubtitleWordIndex(subtitle, subtitleTime) : -1
   const subtitleTokens = subtitle ? splitSubtitleTokens(subtitle.text) : []
+  const currentFrameBlur = Math.max(
+    transitionsEnabled && nextImageUrl ? transitionProgress * 10 : 0,
+    edgeBlurProgress * 12,
+  )
+  const nextFrameBlur = transitionsEnabled && nextImageUrl
+    ? Math.max((1 - transitionProgress) * 10, edgeBlurProgress * 12)
+    : 0
   const subtitlePos = {
     top:    { top: margin, bottom: 'auto', transform: 'none' },
     center: { top: '50%', bottom: 'auto', transform: 'translateY(-50%)' },
@@ -300,12 +309,8 @@ function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, transitions
                   className="absolute inset-0 w-full h-full object-cover"
                   style={{
                     opacity: transitionsEnabled && nextImageUrl ? 1 - transitionProgress : 1,
-                    filter: transitionsEnabled && nextImageUrl && transitionProgress > 0
-                      ? `blur(${transitionProgress * 10}px)`
-                      : 'none',
-                    transform: transitionsEnabled && nextImageUrl && transitionProgress > 0
-                      ? `scale(${1 + transitionProgress * 0.03})`
-                      : 'scale(1)',
+                    filter: currentFrameBlur > 0 ? `blur(${currentFrameBlur}px)` : 'none',
+                    transform: `scale(${1 + Math.max(transitionProgress * 0.03, edgeBlurProgress * 0.02)})`,
                   }}
                 />
                 {transitionsEnabled && nextImageUrl && (
@@ -315,7 +320,7 @@ function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, transitions
                     className="absolute inset-0 w-full h-full object-cover"
                     style={{
                       opacity: transitionProgress,
-                      filter: transitionProgress > 0 ? `blur(${(1 - transitionProgress) * 10}px)` : 'blur(10px)',
+                      filter: `blur(${nextFrameBlur || 10}px)`,
                       transform: `scale(${1.03 - transitionProgress * 0.03})`,
                     }}
                   />
@@ -325,8 +330,16 @@ function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, transitions
                 <span className="text-xs text-muted">Нет изображений</span>
               </div>
           }
+          {watermarkUrl && (
+            <img
+              src={watermarkUrl}
+              alt="Watermark"
+              className="absolute z-10 top-4 right-4 object-contain pointer-events-none"
+              style={{ width: Math.min(box.w * 0.14, 120) }}
+            />
+          )}
           {subtitle && (
-            <div className="absolute left-0 right-0 px-4 flex justify-center z-10"
+            <div className="absolute left-0 right-0 px-4 flex justify-center z-20"
               style={subtitlePos as React.CSSProperties}>
               <span style={{
                 fontSize: box.h * style.fontSize / 100,
@@ -631,6 +644,7 @@ export function Step7_Preview() {
     subtitles, subtitleStyle, setSubtitleStyle, setMusicVolume, setSpeechVolume,
     setMusic, setSubtitles, nextStep, prevStep,
     enableImageTransitions, setEnableImageTransitions,
+    watermarkUrl,
     timelineImageIds: storeTimelineIds, setTimelineImageIds: syncTimelineIds,
   } = useWizardStore()
 
@@ -683,6 +697,16 @@ export function Step7_Preview() {
   const transitionProgress = transitionDuration > 0 && nextImage && timeInCurrentImage >= transitionStart
     ? Math.min((timeInCurrentImage - transitionStart) / transitionDuration, 1)
     : 0
+  const edgeBlurDuration = enableImageTransitions
+    ? (totalDuration >= 0.9 ? 0.45 : Math.max(totalDuration / 2, 0))
+    : 0
+  const introBlurProgress = edgeBlurDuration > 0 && currentTime < edgeBlurDuration
+    ? 1 - currentTime / edgeBlurDuration
+    : 0
+  const outroBlurProgress = edgeBlurDuration > 0 && currentTime > totalDuration - edgeBlurDuration
+    ? (currentTime - (totalDuration - edgeBlurDuration)) / edgeBlurDuration
+    : 0
+  const edgeBlurProgress = Math.max(0, Math.min(Math.max(introBlurProgress, outroBlurProgress), 1))
 
   const ttsRelTime = currentTime - LEAD_IN
   const currentSubtitle = ttsRelTime >= 0 && ttsRelTime <= audioDuration
@@ -941,7 +965,9 @@ export function Step7_Preview() {
           imageUrl={currentImage?.url ?? null}
           nextImageUrl={nextImage?.url ?? null}
           transitionProgress={transitionProgress}
+          edgeBlurProgress={edgeBlurProgress}
           transitionsEnabled={enableImageTransitions}
+          watermarkUrl={watermarkUrl}
           subtitle={currentSubtitle}
           subtitleTime={ttsRelTime}
           style={subtitleStyle}

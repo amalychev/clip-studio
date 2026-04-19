@@ -47,7 +47,15 @@ export function Step3_Audio() {
         voice: ttsVoice,
         project_id: projectId,
       })
-      setAudio(`${BASE_URL}/media/audio/${projectId}/${res.filename}`, res.filename, res.duration)
+      const freshAudioUrl = `${BASE_URL}/media/audio/${projectId}/${res.filename}?v=${Date.now()}`
+      setAudio(freshAudioUrl, res.filename, res.duration)
+      setPlaying(false)
+      setProgress(0)
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+        audioRef.current.load()
+      }
       toast.success('Аудио сгенерировано')
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || 'Ошибка синтеза речи')

@@ -22,6 +22,7 @@ interface WizardActions {
   setMusic: (id: string | null) => void
   setMusicVolume: (v: number) => void
   setEnableImageTransitions: (enabled: boolean) => void
+  setWatermark: (filename: string | null, url: string | null) => void
   setSubtitles: (subs: SubtitleEntry[]) => void
   updateSubtitle: (index: number, text: string) => void
   setSubtitleStyle: (style: Partial<SubtitleStyle>) => void
@@ -49,6 +50,8 @@ const initialState: WizardState = {
   selectedMusicId: null,
   musicVolume: 30,
   enableImageTransitions: true,
+  watermarkFilename: null,
+  watermarkUrl: null,
   subtitles: [],
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   speechVolume: 100,
@@ -69,13 +72,25 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
   setModel: (m) => set({ selectedModel: m }),
   setAudio: (url, filename, duration) => set({ audioUrl: url, audioFilename: filename, audioDuration: duration }),
   setImages: (imgs) => set({ images: imgs }),
-  addImages: (imgs) => set((s) => ({ images: [...s.images, ...imgs] })),
+  addImages: (imgs) => set((s) => {
+    const merged = [...s.images]
+    for (const img of imgs) {
+      const existingIndex = merged.findIndex(existing => existing.id === img.id)
+      if (existingIndex >= 0) {
+        merged[existingIndex] = { ...merged[existingIndex], ...img, order: merged[existingIndex].order }
+      } else {
+        merged.push(img)
+      }
+    }
+    return { images: merged.sort((a, b) => a.order - b.order) }
+  }),
   reorderImages: (imgs) => set({ images: imgs }),
   removeImage: (id) => set((s) => ({ images: s.images.filter(i => i.id !== id) })),
   setTimelineImageIds: (ids) => set({ timelineImageIds: ids }),
   setMusic: (id) => set({ selectedMusicId: id }),
   setMusicVolume: (v) => set({ musicVolume: v }),
   setEnableImageTransitions: (enabled) => set({ enableImageTransitions: enabled }),
+  setWatermark: (filename, url) => set({ watermarkFilename: filename, watermarkUrl: url }),
   setSubtitles: (subs) => set({ subtitles: subs.map(normalizeSubtitleEntry) }),
   updateSubtitle: (index, text) =>
     set((s) => ({
@@ -114,6 +129,10 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
     selectedMusicId: (data.selectedMusicId as string) ?? null,
     musicVolume: (data.musicVolume as number) ?? 30,
     enableImageTransitions: (data.enableImageTransitions as boolean) ?? true,
+    watermarkFilename: (data.watermarkFilename as string) ?? null,
+    watermarkUrl: data.watermarkFilename
+      ? `${BASE_URL}/media/watermark/${projectId}/${data.watermarkFilename as string}`
+      : null,
     subtitles: ((data.subtitles as SubtitleEntry[]) ?? []).map(normalizeSubtitleEntry),
     subtitleStyle: data.subtitleStyle
       ? { ...DEFAULT_SUBTITLE_STYLE, ...(data.subtitleStyle as SubtitleStyle) }
@@ -149,6 +168,7 @@ useWizardStore.subscribe((state) => {
         selectedMusicId: s.selectedMusicId,
         musicVolume: s.musicVolume,
         enableImageTransitions: s.enableImageTransitions,
+        watermarkFilename: s.watermarkFilename,
         subtitles: s.subtitles,
         subtitleStyle: s.subtitleStyle,
         speechVolume: s.speechVolume,

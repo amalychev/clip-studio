@@ -26,7 +26,7 @@ class ExportRequest(BaseModel):
     subtitles: list[dict] = []
     subtitle_style: dict = {}
     speech_volume: float = 1.0
-    watermark: str = ""
+    watermark_filename: str | None = None
     lead_in: float = 2.0
     lead_out: float = 2.0
     audio_duration: float = 0.0
@@ -68,6 +68,12 @@ async def export_video(project_id: str, body: ExportRequest):
                 music_path = str(mp)
                 break
 
+    watermark_path = None
+    if body.watermark_filename:
+        candidate = proj_dir / "watermark" / body.watermark_filename
+        if candidate.exists():
+            watermark_path = str(candidate)
+
     output_dir = proj_dir / "video"
     output_dir.mkdir(exist_ok=True)
 
@@ -83,7 +89,7 @@ async def export_video(project_id: str, body: ExportRequest):
             music_volume=body.music_volume,
             speech_volume=body.speech_volume,
             subtitle_style=body.subtitle_style,
-            watermark=body.watermark,
+            watermark_path=watermark_path,
             formats=formats,
             output_dir=str(output_dir),
             lead_in=body.lead_in,

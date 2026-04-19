@@ -35,7 +35,7 @@ def _build_ffmpeg_cmd(
     music_path: str | None,
     music_volume: float,
     speech_volume: float,
-    watermark: str,
+    watermark_path: str | None,
     width: int,
     height: int,
     output_path: str,
@@ -82,6 +82,11 @@ def _build_ffmpeg_cmd(
             f"apad=whole_dur={total_duration:.3f}[aout]"
         )
 
+    watermark_input_idx = None
+    if watermark_path:
+        watermark_input_idx = len(image_paths) + 1 + (1 if music_path else 0)
+        cmd += ["-i", watermark_path]
+
     filter_parts: list[str] = []
     base_video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -110,17 +115,30 @@ def _build_ffmpeg_cmd(
         filter_parts.append(f"[{current_video}]gblur=sigma=12:enable='{enable_expr}'[vblur]")
         current_video = "vblur"
 
+    edge_transition_duration = (
+        0.45 if enable_image_transitions and total_duration >= 0.9
+        else max(total_duration / 2, 0) if enable_image_transitions
+        else 0.0
+    )
+    if edge_transition_duration > 0:
+        edge_enable = (
+            f"between(t,0,{edge_transition_duration:.3f})+"
+            f"between(t,{max(total_duration - edge_transition_duration, 0):.3f},{total_duration:.3f})"
+        )
+        filter_parts.append(f"[{current_video}]gblur=sigma=12:enable='{edge_enable}'[vedge]")
+        current_video = "vedge"
+
     # ASS subtitles: style embedded in file, PlayRes matches video dims → exact pixel sizes
     if ass_path:
         escaped = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
         filter_parts.append(f"[{current_video}]subtitles='{escaped}'[vsub]")
         current_video = "vsub"
 
-    if watermark:
-        escaped_wm = watermark.replace("'", "\\'").replace(":", "\\:")
+    if watermark_path and watermark_input_idx is not None:
+        wm_width = max(int(width * 0.12), 72)
+        filter_parts.append(f"[{watermark_input_idx}:v]scale={wm_width}:-1[wm]")
         filter_parts.append(
-            f"[{current_video}]drawtext=text='{escaped_wm}':fontcolor=white:fontsize=28:"
-            f"x=w-tw-20:y=20:box=1:boxcolor=black@0.5:boxborderw=6[vwm]"
+            f"[{current_video}][wm]overlay=x=W-w-20:y=20:format=auto[vwm]"
         )
         current_video = "vwm"
 
@@ -146,7 +164,7 @@ async def generate_video_stream(
     music_volume: float,
     speech_volume: float,
     subtitle_style: dict,
-    watermark: str,
+    watermark_path: str | None,
     formats: list[dict],
     output_dir: str,
     lead_in: float = 2.0,
@@ -190,7 +208,7 @@ async def generate_video_stream(
             music_path=music_path,
             music_volume=music_volume,
             speech_volume=speech_volume,
-            watermark=watermark,
+            watermark_path=watermark_path,
             width=width,
             height=height,
             output_path=output_path,

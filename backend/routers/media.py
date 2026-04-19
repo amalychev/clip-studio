@@ -1,4 +1,4 @@
-import uuid
+import re
 import mutagen
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -12,15 +12,30 @@ AUDIO_EXTENSIONS = {".mp3", ".m4a", ".ogg", ".wav", ".flac"}
 router = APIRouter()
 
 
+def _sanitize_name(value: str, fallback: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", value).strip("._-").lower()
+    return cleaned or fallback
+
+
 @router.post("/images/{project_id}")
 async def upload_images(project_id: str, files: list[UploadFile] = File(...)):
     images_dir = DATA_DIR / "projects" / project_id / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     result = []
+    used_names: set[str] = set()
     for i, file in enumerate(files):
         ext = Path(file.filename or "img.jpg").suffix.lower() or ".jpg"
-        filename = f"{uuid.uuid4()}{ext}"
+        base_name = _sanitize_name(Path(file.filename or "").stem, f"image_{i + 1:03d}")
+        candidate = base_name
+        suffix = 2
+        while candidate in used_names:
+            candidate = f"{base_name}_{suffix}"
+            suffix += 1
+        used_names.add(candidate)
+        for old in images_dir.glob(f"{candidate}.*"):
+            old.unlink(missing_ok=True)
+        filename = f"{candidate}{ext}"
         dest = images_dir / filename
         async with aiofiles.open(dest, "wb") as f:
             content = await file.read()
@@ -60,12 +75,49 @@ def delete_image(project_id: str, filename: str):
     return {"ok": True}
 
 
+@router.post("/watermark/{project_id}")
+async def upload_watermark(project_id: str, file: UploadFile = File(...)):
+    watermark_dir = DATA_DIR / "projects" / project_id / "watermark"
+    watermark_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(file.filename or "watermark.png").suffix.lower() or ".png"
+    for old in watermark_dir.glob("watermark.*"):
+        old.unlink(missing_ok=True)
+
+    filename = f"watermark{ext}"
+    dest = watermark_dir / filename
+    async with aiofiles.open(dest, "wb") as f:
+        await f.write(await file.read())
+
+    return {"filename": filename}
+
+
+@router.get("/watermark/{project_id}/{filename}")
+def get_watermark(project_id: str, filename: str):
+    path = DATA_DIR / "projects" / project_id / "watermark" / filename
+    if not path.exists():
+        raise HTTPException(404, "Not found")
+    return FileResponse(str(path))
+
+
+@router.delete("/watermark/{project_id}/{filename}")
+def delete_watermark(project_id: str, filename: str):
+    path = DATA_DIR / "projects" / project_id / "watermark" / filename
+    if path.exists():
+        path.unlink()
+    return {"ok": True}
+
+
 @router.get("/audio/{project_id}/{filename}")
 def get_audio(project_id: str, filename: str):
     path = DATA_DIR / "projects" / project_id / "audio" / filename
     if not path.exists():
         raise HTTPException(404, "Not found")
-    return FileResponse(str(path))
+    return FileResponse(str(path), headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    })
 
 
 @router.get("/music/{track_id}")

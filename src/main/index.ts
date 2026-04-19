@@ -1,17 +1,25 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { runStartup, backendProcess, BACKEND_PORT } from './startup'
 
+app.setName('Clip Studio')
+process.title = 'Clip Studio'
+
 function createWindow(): BrowserWindow {
+  const appIconPath = is.dev
+    ? join(__dirname, '../../assets/clip-studio-logo.png')
+    : join(process.resourcesPath, 'assets', 'clip-studio-logo.png')
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 680,
     show: false,
+    title: 'Clip Studio',
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#0d0f14',
+    icon: appIconPath,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -39,6 +47,12 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.clipstudio.app')
+  const appIconPath = is.dev
+    ? join(__dirname, '../../assets/clip-studio-logo.png')
+    : join(process.resourcesPath, 'assets', 'clip-studio-logo.png')
+  if (process.platform === 'darwin') {
+    app.dock.setIcon(nativeImage.createFromPath(appIconPath))
+  }
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 
   const win = createWindow()

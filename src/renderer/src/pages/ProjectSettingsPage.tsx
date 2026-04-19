@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { projectsApi } from '../lib/api'
+import { projectsApi, mediaApi, BASE_URL } from '../lib/api'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useWizardStore } from '../stores/wizardStore'
 import { Input } from '../components/ui/Input'
@@ -9,7 +9,7 @@ import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Tooltip } from '../components/ui/Tooltip'
 import { AI_MODELS, PROVIDER_LABELS, TTS_VOICES, type AIProvider } from '../types'
-import { Settings, Eye, EyeOff, HelpCircle, ArrowRight, ChevronLeft } from 'lucide-react'
+import { Settings, Eye, EyeOff, HelpCircle, ArrowRight, ChevronLeft, ImagePlus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const PROVIDERS = Object.keys(PROVIDER_LABELS) as AIProvider[]
@@ -19,9 +19,10 @@ export function ProjectSettingsPage() {
   const navigate = useNavigate()
   const settings = useSettingsStore()
   const wizard = useWizardStore()
+  const watermarkInputRef = useRef<HTMLInputElement>(null)
 
   const [projectName, setProjectName] = useState('')
-  const [watermark, setWatermark] = useState(settings.defaultWatermark)
+  const [watermarkFilename, setWatermarkFilename] = useState<string | null>(null)
   const [ttsVoice, setTtsVoice] = useState(settings.ttsVoice)
   const [provider, setProvider] = useState<AIProvider>(settings.defaultProvider)
   const [model, setModel] = useState(settings.defaultModel)
@@ -35,7 +36,7 @@ export function ProjectSettingsPage() {
     projectsApi.get(projectId).then(p => {
       setProjectName(p.name)
       const data = p.data || {}
-      if (data.watermark !== undefined) setWatermark(data.watermark)
+      if (data.watermarkFilename) setWatermarkFilename(data.watermarkFilename)
       if (data.ttsVoice) setTtsVoice(data.ttsVoice)
       if (data.provider) setProvider(data.provider)
       if (data.model) setModel(data.model)
@@ -45,6 +46,35 @@ export function ProjectSettingsPage() {
   }, [projectId])
 
   const models = AI_MODELS.filter(m => m.provider === provider)
+  const watermarkUrl = useMemo(
+    () => watermarkFilename && projectId ? `${BASE_URL}/media/watermark/${projectId}/${watermarkFilename}` : null,
+    [projectId, watermarkFilename]
+  )
+
+  const handleWatermarkSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!projectId || !file) return
+    try {
+      const res = await mediaApi.uploadWatermark(projectId, file)
+      setWatermarkFilename(res.filename)
+      toast.success('Логотип загружен')
+    } catch {
+      toast.error('Ошибка загрузки логотипа')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  const handleWatermarkRemove = async () => {
+    if (!projectId || !watermarkFilename) return
+    try {
+      await mediaApi.deleteWatermark(projectId, watermarkFilename)
+      setWatermarkFilename(null)
+      toast.success('Логотип удалён')
+    } catch {
+      toast.error('Ошибка удаления логотипа')
+    }
+  }
 
   const handleSave = async () => {
     if (!projectId) return
@@ -54,7 +84,7 @@ export function ProjectSettingsPage() {
         name: projectName,
         data: {
           configured: true,
-          watermark,
+          watermarkFilename,
           ttsVoice,
           provider,
           model,
@@ -65,7 +95,6 @@ export function ProjectSettingsPage() {
       settings.setDefaultProvider(provider)
       settings.setDefaultModel(model)
       settings.setTtsVoice(ttsVoice)
-      settings.setDefaultWatermark(watermark)
       Object.entries(apiKeys).forEach(([p, k]) => settings.setApiKey(p as AIProvider, k))
 
       // Init wizard
@@ -73,6 +102,7 @@ export function ProjectSettingsPage() {
       wizard.setProject(projectId)
       wizard.setProvider(provider)
       wizard.setModel(model)
+      wizard.setWatermark(watermarkFilename, watermarkFilename ? `${BASE_URL}/media/watermark/${projectId}/${watermarkFilename}` : null)
 
       toast.success('Настройки сохранены')
       navigate(`/project/${projectId}/workspace`)
@@ -111,13 +141,33 @@ export function ProjectSettingsPage() {
               value={projectName}
               onChange={e => setProjectName(e.target.value)}
             />
-            <Input
-              label="Водяной знак"
-              value={watermark}
-              onChange={e => setWatermark(e.target.value)}
-              placeholder="mysite.com"
-              hint="Текст в правом верхнем углу видео"
-            />
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-medium text-white/80">Логотип / watermark</label>
+              <input
+                ref={watermarkInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={handleWatermarkSelected}
+              />
+              <div className="flex items-center gap-3">
+                <Button type="button" variant="secondary" icon={<ImagePlus size={16} />} onClick={() => watermarkInputRef.current?.click()}>
+                  Загрузить логотип
+                </Button>
+                {watermarkFilename && (
+                  <Button type="button" variant="ghost" icon={<Trash2 size={16} />} onClick={handleWatermarkRemove}>
+                    Удалить
+                  </Button>
+                )}
+              </div>
+              {watermarkUrl ? (
+                <div className="rounded-xl border border-border bg-surface-2 p-4">
+                  <img src={watermarkUrl} alt="Watermark" className="h-16 w-auto object-contain" />
+                </div>
+              ) : (
+                <p className="text-xs text-muted">Картинка будет показана в правом верхнем углу превью и итогового видео.</p>
+              )}
+            </div>
           </section>
 
           {/* AI settings */}

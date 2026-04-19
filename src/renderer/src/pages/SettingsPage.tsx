@@ -1,5 +1,4 @@
 import { useSettingsStore } from '../stores/settingsStore'
-import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
 import { Button } from '../components/ui/Button'
 import { AI_MODELS, PROVIDER_LABELS, TTS_VOICES, type AIProvider } from '../types'
@@ -83,16 +82,6 @@ export function SettingsPage() {
               value={settings.ttsVoice}
               onChange={e => settings.setTtsVoice(e.target.value)}
               options={TTS_VOICES.map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) }))}
-            />
-          </section>
-
-          <section className="bg-surface-1 border border-border rounded-xl p-5 flex flex-col gap-4">
-            <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Видео</h2>
-            <Input
-              label="Водяной знак по умолчанию"
-              value={settings.defaultWatermark}
-              onChange={e => settings.setDefaultWatermark(e.target.value)}
-              placeholder="mysite.com"
             />
           </section>
         </div>

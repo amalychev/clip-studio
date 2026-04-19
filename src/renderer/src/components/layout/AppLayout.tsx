@@ -1,7 +1,8 @@
 import { type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { clsx } from 'clsx'
-import { FolderOpen, Settings, Clapperboard } from 'lucide-react'
+import { FolderOpen, Settings } from 'lucide-react'
+import logoUrl from '../../assets/clip-studio-logo.png'
 
 interface Props { children: ReactNode }
 
@@ -19,9 +20,7 @@ export function AppLayout({ children }: Props) {
       <aside className="w-56 flex flex-col bg-surface-1 border-r border-border shrink-0">
         {/* Logo — pt-8 leaves room for macOS traffic lights (hiddenInset) */}
         <div className="flex items-center gap-2.5 px-4 pt-10 pb-4 border-b border-border drag-region">
-          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center">
-            <Clapperboard size={14} className="text-white" />
-          </div>
+          <img src={logoUrl} alt="Clip Studio" className="w-7 h-7 rounded-lg object-cover" />
           <span className="font-semibold text-sm text-white">Clip Studio</span>
         </div>
 
