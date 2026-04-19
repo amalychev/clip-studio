@@ -31,6 +31,8 @@ interface WizardActions {
   toggleFormat: (id: string) => void
   setExportProgress: (p: ExportProgress | null) => void
   setExportedFiles: (files: ExportResult[]) => void
+  setPreviewFormatId: (id: WizardState['previewFormatId']) => void
+  setPreviewVideo: (filename: string | null, url: string | null) => void
   restoreState: (projectId: string, data: Record<string, unknown>) => void
   reset: () => void
 }
@@ -58,6 +60,9 @@ const initialState: WizardState = {
   exportFormats: DEFAULT_VIDEO_FORMATS,
   exportProgress: null,
   exportedFiles: [],
+  previewFormatId: '9:16',
+  previewVideoFilename: null,
+  previewVideoUrl: null,
 }
 
 export const useWizardStore = create<WizardState & WizardActions>((set) => ({
@@ -105,6 +110,8 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
     })),
   setExportProgress: (p) => set({ exportProgress: p }),
   setExportedFiles: (files) => set({ exportedFiles: files }),
+  setPreviewFormatId: (id) => set({ previewFormatId: id }),
+  setPreviewVideo: (filename, url) => set({ previewVideoFilename: filename, previewVideoUrl: url }),
   restoreState: (projectId, data) => set({
     projectId,
     currentStep: (data.wizardStep as number) ?? 1,
@@ -141,6 +148,11 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
     exportFormats: (data.exportFormats as VideoFormat[]) ?? DEFAULT_VIDEO_FORMATS,
     exportProgress: null,
     exportedFiles: [],
+    previewFormatId: (data.previewFormatId as WizardState['previewFormatId']) ?? '9:16',
+    previewVideoFilename: (data.previewVideoFilename as string) ?? null,
+    previewVideoUrl: data.previewVideoFilename
+      ? `${BASE_URL}/media/video/${projectId}/${data.previewVideoFilename as string}`
+      : null,
   }),
   reset: () => set(initialState),
 }))
@@ -173,6 +185,8 @@ useWizardStore.subscribe((state) => {
         subtitleStyle: s.subtitleStyle,
         speechVolume: s.speechVolume,
         exportFormats: s.exportFormats,
+        previewFormatId: s.previewFormatId,
+        previewVideoFilename: s.previewVideoFilename,
       },
     }).catch(() => {})
   }, 1500)

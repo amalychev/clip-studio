@@ -5,6 +5,7 @@ import json
 
 import httpx
 from database import DATA_DIR
+from services.project_naming import get_project_slug
 
 
 OPENAI_IMAGE_PROMPT_MODEL = "gpt-5.4-mini"
@@ -20,7 +21,9 @@ def _build_prompt_planner_instruction(source_text: str, creative_direction: str,
 - Каждый промпт должен описывать отдельную сцену или отдельный визуальный момент.
 - Все промпты вместе должны покрывать содержание текста последовательно и логично.
 - Промпты должны быть пригодны для text-to-image генерации: сцена, композиция, объекты, атмосфера, свет, стиль, ракурс.
-- Избегай текста внутри изображения, логотипов, интерфейсов и коллажей, если это не требуется явно.
+- Каждый промпт должен быть ориентирован на вертикальную композицию 9:16.
+- Во всех промптах нужен реалистичный визуальный стиль, фотореализм или близкий к нему cinematic realism.
+- Во всех промптах явно избегай текста внутри изображения, надписей, типографики, логотипов, интерфейсов и коллажей.
 - Если передано визуальное направление, учитывай его во всех сценах.
 - Верни только JSON-массив строк без пояснений.
 
@@ -32,8 +35,21 @@ def _build_prompt_planner_instruction(source_text: str, creative_direction: str,
 """
 
 
+def _build_image_generation_prompt(prompt: str) -> str:
+    return (
+        f"{prompt.strip()}\n\n"
+        "Дополнительные требования: вертикальная композиция 9:16, реализм, фотореалистичный cinematic look, "
+        "без текста, без надписей, без логотипов, без интерфейсов."
+    )
+
+
 def _parse_prompt_list(raw: str, count: int) -> list[str]:
+    import re
     text = raw.strip()
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    text = re.sub(r"^```[a-z]*\n?", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\n?```$", "", text)
+    text = text.strip()
     try:
         data = json.loads(text)
         if isinstance(data, list):
@@ -48,9 +64,10 @@ def _parse_prompt_list(raw: str, count: int) -> list[str]:
     return prompts[:count]
 
 
-async def _generate_scene_prompts(
+async def generate_scene_prompts(
     *,
     provider: str,
+    model: str,
     api_key: str,
     source_text: str,
     creative_direction: str,
@@ -63,7 +80,7 @@ async def _generate_scene_prompts(
 
         client = AsyncOpenAI(api_key=api_key)
         response = await client.chat.completions.create(
-            model=OPENAI_IMAGE_PROMPT_MODEL,
+            model=model,
             messages=[
                 {"role": "system", "content": "Ты создаёшь качественные scene-prompts для image generation и отвечаешь строго JSON-массивом строк."},
                 {"role": "user", "content": instruction},
@@ -72,25 +89,42 @@ async def _generate_scene_prompts(
         )
         content = response.choices[0].message.content or "[]"
         prompts = _parse_prompt_list(content, count)
+    elif provider == "anthropic":
+        import anthropic
+
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        response = await client.messages.create(
+            model=model,
+            max_tokens=4096,
+            system="Ты создаёшь качественные scene-prompts для image generation и отвечаешь строго JSON-массивом строк.",
+            messages=[{"role": "user", "content": instruction}],
+        )
+        content = response.content[0].text if response.content else "[]"
+        prompts = _parse_prompt_list(content, count)
+    elif provider == "mistral":
+        from mistralai import Mistral
+
+        client = Mistral(api_key=api_key)
+        response = await client.chat.complete_async(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Ты создаёшь качественные scene-prompts для image generation и отвечаешь строго JSON-массивом строк."},
+                {"role": "user", "content": instruction},
+            ],
+        )
+        content = response.choices[0].message.content or "[]"
+        prompts = _parse_prompt_list(content, count)
     elif provider == "gemini":
-        async with httpx.AsyncClient(timeout=180) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_IMAGE_PROMPT_MODEL}:generateContent",
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json={
-                    "contents": [{
-                        "parts": [{"text": instruction}],
-                    }]
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            content = ""
-            for candidate in data.get("candidates", []):
-                for part in candidate.get("content", {}).get("parts", []):
-                    if "text" in part:
-                        content += part["text"]
-            prompts = _parse_prompt_list(content, count)
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        gemini = genai.GenerativeModel(
+            model_name=model,
+            system_instruction="Ты создаёшь качественные scene-prompts для image generation и отвечаешь строго JSON-массивом строк.",
+        )
+        response = await gemini.generate_content_async(instruction)
+        content = response.text or "[]"
+        prompts = _parse_prompt_list(content, count)
     else:
         raise ValueError(f"Unsupported image provider: {provider}")
 
@@ -102,8 +136,9 @@ async def _generate_scene_prompts(
 def _save_generated_image(project_id: str, slot: int, image_bytes: bytes, extension: str = ".png") -> dict:
     images_dir = DATA_DIR / "projects" / project_id / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"generated_{slot:03d}{extension}"
-    for old in images_dir.glob(f"generated_{slot:03d}.*"):
+    project_slug = get_project_slug(project_id)
+    filename = f"{project_slug}_generated_{slot:03d}{extension}"
+    for old in images_dir.glob(f"*_generated_{slot:03d}.*"):
         old.unlink(missing_ok=True)
     path = images_dir / filename
     path.write_bytes(image_bytes)
@@ -114,7 +149,8 @@ def _clear_stale_generated(project_id: str, keep_count: int) -> None:
     images_dir = DATA_DIR / "projects" / project_id / "images"
     if not images_dir.exists():
         return
-    for old in images_dir.glob("generated_*.*"):
+    project_slug = get_project_slug(project_id)
+    for old in images_dir.glob("*_generated_*.*"):
         stem = old.stem
         try:
             slot = int(stem.split("_")[-1])
@@ -122,6 +158,81 @@ def _clear_stale_generated(project_id: str, keep_count: int) -> None:
             continue
         if slot > keep_count:
             old.unlink(missing_ok=True)
+
+
+async def _generate_image_openai(model: str, api_key: str, prompt: str) -> bytes:
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=api_key)
+    is_dalle3 = model == "dall-e-3"
+    kwargs: dict = dict(
+        model=model,
+        prompt=_build_image_generation_prompt(prompt),
+        # Portrait 9:16 for dall-e-3; gpt-image-1 uses auto sizing
+        size="1024x1792" if is_dalle3 else "1024x1536",
+        quality="standard" if is_dalle3 else "medium",
+    )
+    if is_dalle3:
+        # dall-e-3 defaults to URL; must opt in to b64
+        kwargs["response_format"] = "b64_json"
+
+    response = await client.images.generate(**kwargs)
+    if not response.data or not response.data[0].b64_json:
+        raise RuntimeError("OpenAI did not return image data")
+    return base64.b64decode(response.data[0].b64_json)
+
+
+async def _generate_image_gemini(client: httpx.AsyncClient, model: str, api_key: str, prompt: str) -> tuple[bytes, str]:
+    full_prompt = _build_image_generation_prompt(prompt)
+
+    # All Gemini image models use generateContent with key as query param
+    response = await client.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        params={"key": api_key},
+        headers={"Content-Type": "application/json"},
+        json={"contents": [{"parts": [{"text": full_prompt}]}]},
+    )
+    if not response.is_success:
+        raise RuntimeError(f"Gemini API error {response.status_code}: {response.text}")
+    data = response.json()
+    inline_data = None
+    mime_type = "image/png"
+    for candidate in data.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            if "inlineData" in part:
+                inline_data = part["inlineData"].get("data")
+                mime_type = part["inlineData"].get("mimeType", mime_type)
+                break
+        if inline_data:
+            break
+    if not inline_data:
+        candidates = data.get("candidates", [])
+        finish_reason = candidates[0].get("finishReason", "unknown") if candidates else "no candidates"
+        raise RuntimeError(f"Gemini did not return image data (finishReason: {finish_reason})")
+    return base64.b64decode(inline_data), mime_type
+
+
+async def generate_single_image_for_slot(
+    *,
+    project_id: str,
+    provider: str,
+    model: str,
+    api_key: str,
+    prompt: str,
+    slot: int,
+) -> dict:
+    if provider == "openai":
+        image_bytes = await _generate_image_openai(model, api_key, prompt)
+        return _save_generated_image(project_id, slot, image_bytes, ".png")
+
+    elif provider == "gemini":
+        async with httpx.AsyncClient(timeout=180) as client:
+            image_bytes, mime_type = await _generate_image_gemini(client, model, api_key, prompt)
+        ext = ".png" if "png" in mime_type else ".jpg"
+        return _save_generated_image(project_id, slot, image_bytes, ext)
+
+    else:
+        raise ValueError(f"Unsupported image provider: {provider}")
 
 
 async def generate_project_images(
@@ -133,14 +244,16 @@ async def generate_project_images(
     source_text: str,
     creative_direction: str,
     count: int,
+    prompts: list[str] | None = None,
 ) -> dict:
     if count < 1:
         raise ValueError("Count must be at least 1")
     if not source_text.strip():
         raise ValueError("Source text is required")
 
-    prompts = await _generate_scene_prompts(
-        provider=provider,
+    scene_prompts = prompts if prompts else await generate_scene_prompts(
+        provider="openai" if provider == "openai" else "gemini",
+        model=OPENAI_IMAGE_PROMPT_MODEL if provider == "openai" else GEMINI_IMAGE_PROMPT_MODEL,
         api_key=api_key,
         source_text=source_text,
         creative_direction=creative_direction,
@@ -149,52 +262,18 @@ async def generate_project_images(
     results: list[dict] = []
 
     if provider == "openai":
-        from openai import AsyncOpenAI
-
-        client = AsyncOpenAI(api_key=api_key)
-        for idx, prompt in enumerate(prompts):
-            response = await client.images.generate(
-                model=model,
-                prompt=prompt,
-                size="1024x1024",
-                quality="medium",
-            )
-            if not response.data or not response.data[0].b64_json:
-                raise RuntimeError("OpenAI did not return image data")
-            image_bytes = base64.b64decode(response.data[0].b64_json)
+        for idx, prompt in enumerate(scene_prompts):
+            image_bytes = await _generate_image_openai(model, api_key, prompt)
             results.append(_save_generated_image(project_id, idx + 1, image_bytes, ".png"))
 
     elif provider == "gemini":
         async with httpx.AsyncClient(timeout=180) as client:
-            for idx, prompt in enumerate(prompts):
-                response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                    json={
-                        "contents": [{
-                            "parts": [{"text": prompt}],
-                        }]
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                inline_data = None
-                mime_type = "image/png"
-                for candidate in data.get("candidates", []):
-                    for part in candidate.get("content", {}).get("parts", []):
-                        if "inlineData" in part:
-                            inline_data = part["inlineData"].get("data")
-                            mime_type = part["inlineData"].get("mimeType", mime_type)
-                            break
-                    if inline_data:
-                        break
-                if not inline_data:
-                    raise RuntimeError("Gemini did not return image data")
-                image_bytes = base64.b64decode(inline_data)
+            for idx, prompt in enumerate(scene_prompts):
+                image_bytes, mime_type = await _generate_image_gemini(client, model, api_key, prompt)
                 ext = ".png" if "png" in mime_type else ".jpg"
                 results.append(_save_generated_image(project_id, idx + 1, image_bytes, ext))
     else:
         raise ValueError(f"Unsupported image provider: {provider}")
 
     _clear_stale_generated(project_id, count)
-    return {"images": results, "prompts": prompts}
+    return {"images": results, "prompts": scene_prompts}

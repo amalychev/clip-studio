@@ -17,7 +17,7 @@ function formatTime(s: number) {
 }
 
 export function Step6_Subtitles() {
-  const { preparedText, audioDuration, subtitles, projectId,
+  const { rawText, audioDuration, subtitles, projectId,
     setSubtitles, updateSubtitle, nextStep, prevStep } = useWizardStore()
   const [loading, setLoading] = useState(false)
 
@@ -26,7 +26,7 @@ export function Step6_Subtitles() {
     setLoading(true)
     try {
       const res = await subtitleApi.generate({
-        text: preparedText,
+        text: rawText,
         duration: audioDuration,
         project_id: projectId,
       })
@@ -61,6 +61,10 @@ export function Step6_Subtitles() {
           </span>
         )}
       </div>
+
+      <p className="text-xs text-muted">
+        Субтитры генерируются по исходному тексту со 2 шага, а не по тексту TTS с 3 шага.
+      </p>
 
       {subtitles.length === 0 && !loading && (
         <div className="flex flex-col items-center justify-center gap-4 py-14 rounded-xl border border-dashed border-border">

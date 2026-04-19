@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from database import DATA_DIR
+from services.project_naming import get_project_slug
 
 WORD_RE = re.compile(r'[^\s.,!?;:()"«»]+', re.UNICODE)
 
@@ -169,7 +170,10 @@ def save_subtitles_ass(
     """
     subs_dir = DATA_DIR / "projects" / project_id / "subtitles"
     subs_dir.mkdir(parents=True, exist_ok=True)
-    ass_path = subs_dir / f"subtitles_{fmt_id}.ass"
+    project_slug = get_project_slug(project_id)
+    ass_path = subs_dir / f"{project_slug}_subtitles_{fmt_id}.ass"
+    for old in subs_dir.glob(f"*_subtitles_{fmt_id}.ass"):
+        old.unlink(missing_ok=True)
 
     font_size = max(8, int(height * style.get("fontSize", 2.5) / 100))
     outline = max(1, font_size // 5)
@@ -200,7 +204,7 @@ def save_subtitles_ass(
         f"Style: Default,Arial,{font_size},{text_color},{text_color},{bg_color},{bg_color},"
         f"{bold},0,0,0,100,100,0,0,3,{outline},0,{alignment},{margin_h},{margin_h},{margin_v},1",
         f"Style: ActiveWord,Arial,{font_size},{active_word_color},{active_word_color},{transparent},{transparent},"
-        f"{bold},0,0,0,100,100,0,0,1,0,0,{alignment},{margin_h},{margin_h},{margin_v},1",
+        f"-1,0,0,0,100,100,0,0,1,0,0,{alignment},{margin_h},{margin_h},{margin_v},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -228,7 +232,10 @@ def save_subtitles_ass(
 def save_subtitles_srt(subtitles: list[dict], project_id: str, time_offset: float = 0.0) -> Path:
     subs_dir = DATA_DIR / "projects" / project_id / "subtitles"
     subs_dir.mkdir(parents=True, exist_ok=True)
-    srt_path = subs_dir / "subtitles.srt"
+    project_slug = get_project_slug(project_id)
+    srt_path = subs_dir / f"{project_slug}_subtitles.srt"
+    for old in subs_dir.glob("*_subtitles.srt"):
+        old.unlink(missing_ok=True)
 
     lines = []
     for sub in subtitles:

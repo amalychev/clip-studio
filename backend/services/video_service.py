@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 import mutagen
 from services.subtitle_service import save_subtitles_ass
+from services.project_naming import get_project_slug
 
 # ffmpeg binary — injected by Electron via env var, falls back to system PATH
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
@@ -43,6 +44,7 @@ def _build_ffmpeg_cmd(
     lead_out: float = 2.0,
     audio_duration: float = 0.0,
     enable_image_transitions: bool = True,
+    preview_mode: bool = False,
 ) -> list[str]:
     tts_duration = audio_duration if audio_duration > 0 else _get_audio_duration(audio_path)
     total_duration = tts_duration + lead_in + lead_out
@@ -88,9 +90,10 @@ def _build_ffmpeg_cmd(
         cmd += ["-i", watermark_path]
 
     filter_parts: list[str] = []
+    fps = 18 if preview_mode else 25
     base_video_filter = (
         f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},fps=25,setsar=1,format=yuv420p"
+        f"crop={width}:{height},fps={fps},setsar=1,format=yuv420p"
     )
     for idx, _ in enumerate(image_paths):
         loop_duration = image_duration if idx == 0 or transition_duration == 0 else image_duration + transition_duration
@@ -114,6 +117,10 @@ def _build_ffmpeg_cmd(
         )
         filter_parts.append(f"[{current_video}]gblur=sigma=12:enable='{enable_expr}'[vblur]")
         current_video = "vblur"
+    elif len(image_paths) > 1:
+        concat_inputs = "".join(f"[v{idx}]" for idx in range(len(image_paths)))
+        filter_parts.append(f"{concat_inputs}concat=n={len(image_paths)}:v=1:a=0[vcat]")
+        current_video = "vcat"
 
     edge_transition_duration = (
         0.45 if enable_image_transitions and total_duration >= 0.9
@@ -142,15 +149,30 @@ def _build_ffmpeg_cmd(
         )
         current_video = "vwm"
 
-    cmd += [
-        "-filter_complex", ";".join(filter_parts + [audio_filter]),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
-        "-map", f"[{current_video}]", "-map", "[aout]",
-        "-c:a", "aac", "-b:a", "192k",
-        "-t", f"{total_duration:.3f}",
-        "-movflags", "+faststart",
-        output_path,
-    ]
+    cmd += ["-filter_complex", ";".join(filter_parts + [audio_filter])]
+    if preview_mode:
+        cmd += [
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "fastdecode",
+            "-crf", "31",
+            "-g", "36",
+            "-pix_fmt", "yuv420p",
+            "-map", f"[{current_video}]", "-map", "[aout]",
+            "-c:a", "aac", "-b:a", "96k",
+            "-t", f"{total_duration:.3f}",
+            "-movflags", "+faststart",
+            output_path,
+        ]
+    else:
+        cmd += [
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
+            "-map", f"[{current_video}]", "-map", "[aout]",
+            "-c:a", "aac", "-b:a", "192k",
+            "-t", f"{total_duration:.3f}",
+            "-movflags", "+faststart",
+            output_path,
+        ]
 
     return cmd
 
@@ -174,6 +196,7 @@ async def generate_video_stream(
 ) -> AsyncGenerator[str, None]:
     results = []
     total = len(formats)
+    project_slug = get_project_slug(project_id)
 
     yield _progress("start", 0, "Начало генерации видео...")
     await asyncio.sleep(0.1)
@@ -183,7 +206,10 @@ async def generate_video_stream(
         fmt_name = fmt["id"]
         width = fmt["width"]
         height = fmt["height"]
-        output_path = str(Path(output_dir) / f"{fmt_name}.mp4")
+        output_file = Path(output_dir) / f"{project_slug}_{fmt_name}.mp4"
+        for old in Path(output_dir).glob(f"*_{fmt_name}.mp4"):
+            old.unlink(missing_ok=True)
+        output_path = str(output_file)
 
         yield _progress("render", base_pct + 5, f"Рендеринг {fmt_name} ({width}×{height})...")
         await asyncio.sleep(0.05)
@@ -201,40 +227,28 @@ async def generate_video_stream(
                 fmt_id=fmt_name,
             ))
 
-        cmd = _build_ffmpeg_cmd(
-            image_paths=image_paths,
-            audio_path=audio_path,
-            ass_path=ass_path,
-            music_path=music_path,
-            music_volume=music_volume,
-            speech_volume=speech_volume,
-            watermark_path=watermark_path,
-            width=width,
-            height=height,
-            output_path=output_path,
-            lead_in=lead_in,
-            lead_out=lead_out,
-            audio_duration=audio_duration,
-            enable_image_transitions=enable_image_transitions,
-        )
-
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            result = await render_video_file(
+                project_id=project_id,
+                image_paths=image_paths,
+                audio_path=audio_path,
+                subtitles=subtitles,
+                music_path=music_path,
+                music_volume=music_volume,
+                speech_volume=speech_volume,
+                subtitle_style=subtitle_style,
+                watermark_path=watermark_path,
+                width=width,
+                height=height,
+                output_path=output_path,
+                lead_in=lead_in,
+                lead_out=lead_out,
+                audio_duration=audio_duration,
+                enable_image_transitions=enable_image_transitions,
+                fmt_id=fmt_name,
             )
-            _, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                err = stderr.decode("utf-8", errors="replace")
-                yield _progress("error", base_pct, f"Ошибка ffmpeg: {err[:200]}", error=err)
-                return
-
-            size = Path(output_path).stat().st_size
-            results.append({"format": fmt_name, "path": output_path, "size": size})
-            yield _progress("render", base_pct + int(90 / total), f"{fmt_name} готов ({size // 1024} KB)")
-
+            results.append({"format": fmt_name, "path": output_path, "size": result["size"]})
+            yield _progress("render", base_pct + int(90 / total), f"{fmt_name} готов ({result['size'] // 1024} KB)")
         except FileNotFoundError:
             yield _progress(
                 "error", 0,
@@ -248,3 +262,73 @@ async def generate_video_stream(
             return
 
     yield _progress("done", 100, f"Готово! Создано {len(results)} файлов", done=True, files=results)
+
+
+async def render_video_file(
+    project_id: str,
+    image_paths: list[str],
+    audio_path: str,
+    subtitles: list[dict],
+    music_path: str | None,
+    music_volume: float,
+    speech_volume: float,
+    subtitle_style: dict,
+    watermark_path: str | None,
+    width: int,
+    height: int,
+    output_path: str,
+    lead_in: float = 2.0,
+    lead_out: float = 2.0,
+    audio_duration: float = 0.0,
+    enable_image_transitions: bool = True,
+    fmt_id: str = "preview",
+    preview_mode: bool = False,
+) -> dict:
+    ass_path = None
+    if subtitles:
+        ass_path = str(save_subtitles_ass(
+            subtitles=subtitles,
+            project_id=project_id,
+            time_offset=lead_in,
+            width=width,
+            height=height,
+            style=subtitle_style,
+            fmt_id=fmt_id,
+        ))
+
+    temp_output_path = f"{output_path}.tmp.mp4" if preview_mode else output_path
+
+    cmd = _build_ffmpeg_cmd(
+        image_paths=image_paths,
+        audio_path=audio_path,
+        ass_path=ass_path,
+        music_path=music_path,
+        music_volume=music_volume,
+        speech_volume=speech_volume,
+            watermark_path=watermark_path,
+            width=width,
+            height=height,
+        output_path=temp_output_path,
+        lead_in=lead_in,
+        lead_out=lead_out,
+        audio_duration=audio_duration,
+        enable_image_transitions=enable_image_transitions,
+        preview_mode=preview_mode,
+    )
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace")
+        raise RuntimeError(f"Ошибка ffmpeg: {err[:200]}")
+
+    output = Path(output_path)
+    if preview_mode:
+        temp_output = Path(temp_output_path)
+        temp_output.replace(output)
+    return {"path": str(output), "size": output.stat().st_size}

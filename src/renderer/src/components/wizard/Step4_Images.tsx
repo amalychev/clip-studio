@@ -7,8 +7,8 @@ import { Tooltip } from '../ui/Tooltip'
 import { Textarea } from '../ui/Textarea'
 import { Select } from '../ui/Select'
 import { mediaApi, aiApi, BASE_URL } from '../../lib/api'
-import { PROVIDER_LABELS } from '../../types'
-import { HelpCircle, ArrowLeft, ArrowRight, UploadCloud, X, ArrowUpDown, Image, Info, Wand2, AlertCircle } from 'lucide-react'
+import { AI_MODELS, PROVIDER_LABELS, type AIProvider } from '../../types'
+import { HelpCircle, ArrowLeft, ArrowRight, UploadCloud, X, ArrowUpDown, Image, Info, Wand2, AlertCircle, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 
@@ -16,38 +16,53 @@ const IMAGE_AI_PROVIDERS = ['openai', 'gemini'] as const
 
 const IMAGE_MODELS = {
   openai: [
-    { id: 'gpt-image-1.5', name: 'GPT Image 1.5' },
-    { id: 'gpt-image-1-mini', name: 'GPT Image 1 Mini' },
+    { id: 'gpt-image-1', name: 'GPT Image 1' },
+    { id: 'dall-e-3', name: 'DALL-E 3' },
   ],
   gemini: [
     { id: 'gemini-2.5-flash-image', name: 'Gemini 2.5 Flash Image' },
-    { id: 'gemini-3-pro-image-preview', name: 'Gemini 3 Pro Image Preview' },
   ],
 } as const
 
+const DEFAULT_DIRECTION =
+  '9:16 вертикальные пропорции. Без текста, надписей и логотипов в кадре. ' +
+  'Реализм: фотографическое качество, естественное освещение, кинематографический кадр, ' +
+  'глубина резкости, детализированные текстуры, натуральные цвета.'
+
 export function Step4_Images() {
-  const { images, audioDuration, projectId, preparedText, addImages, removeImage, reorderImages, nextStep, prevStep } = useWizardStore()
-  const { apiKeys } = useSettingsStore()
+  const { images, audioDuration, projectId, preparedText, selectedProvider, selectedModel, addImages, setImages, removeImage, reorderImages, nextStep, prevStep } = useWizardStore()
+  const { apiKeys, defaultProvider, defaultModel } = useSettingsStore()
 
   const recommended = audioDuration > 0 ? Math.max(1, Math.round(audioDuration / 4)) : null
   const perImage = recommended && images.length > 0 ? (audioDuration / images.length).toFixed(1) : null
   const tooFew = recommended && images.length > 0 && images.length < recommended - 1
   const tooMany = recommended && images.length > 0 && images.length > recommended + 2
   const [uploading, setUploading] = useState(false)
-  const [generating, setGenerating] = useState(false)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [dragging, setDragging] = useState<number | null>(null)
+  const [promptProvider, setPromptProvider] = useState<AIProvider>(selectedProvider || defaultProvider)
+  const [promptModel, setPromptModel] = useState<string>(selectedModel || defaultModel)
+  const [promptLoading, setPromptLoading] = useState(false)
   const [imageProvider, setImageProvider] = useState<(typeof IMAGE_AI_PROVIDERS)[number]>('openai')
   const [imageModel, setImageModel] = useState<string>(IMAGE_MODELS.openai[0].id)
   const [imageDirection, setImageDirection] = useState('')
   const [generatedPrompts, setGeneratedPrompts] = useState<string[]>([])
+  const [generateCount, setGenerateCount] = useState<number>(recommended ?? 1)
+  const [countTouched, setCountTouched] = useState(false)
+  const [generatingSlots, setGeneratingSlots] = useState<Set<number>>(new Set())
   const availableImageProviders = IMAGE_AI_PROVIDERS.filter(provider => apiKeys[provider]?.trim())
 
   useEffect(() => {
     if (!imageDirection.trim() && preparedText.trim()) {
-      setImageDirection('Современный кинематографичный стиль, выразительный свет, реалистичные детали, чистая композиция, без текста в кадре.')
+      setImageDirection(DEFAULT_DIRECTION)
     }
   }, [preparedText])
+
+  useEffect(() => {
+    if (!countTouched) {
+      setGenerateCount(recommended ?? 1)
+    }
+  }, [recommended, countTouched])
 
   useEffect(() => {
     if (!availableImageProviders.length) return
@@ -58,9 +73,27 @@ export function Step4_Images() {
     }
   }, [availableImageProviders, imageProvider])
 
+  useEffect(() => {
+    const availableModels = AI_MODELS.filter(m => m.provider === promptProvider)
+    if (!availableModels.some(m => m.id === promptModel)) {
+      setPromptModel(availableModels[0]?.id || '')
+    }
+  }, [promptProvider, promptModel])
+
   const modelOptions = IMAGE_MODELS[imageProvider]
+  const promptModelOptions = AI_MODELS.filter(m => m.provider === promptProvider)
   const providerKey = apiKeys[imageProvider]
-  const generateCount = recommended ?? 1
+  const promptProviderKey = apiKeys[promptProvider]
+  const effectiveGenerateCount = Math.max(1, Math.min(99, generateCount || 1))
+
+  const hasGeneratedImage = (index: number) => {
+    const slot = String(index + 1).padStart(3, '0')
+    return images.some(img => img.filename.includes(`_generated_${slot}`))
+  }
+
+  const updatePrompt = (index: number, value: string) => {
+    setGeneratedPrompts(prev => prev.map((p, i) => i === index ? value : p))
+  }
 
   const onDrop = useCallback(async (accepted: File[]) => {
     if (!projectId || !accepted.length) return
@@ -99,10 +132,10 @@ export function Step4_Images() {
     setDragOver(null)
   }
 
-  const handleGenerateImages = async () => {
+  const handleGeneratePrompts = async () => {
     if (!projectId) return
-    if (!providerKey) {
-      toast.error(`Укажите API-ключ для ${PROVIDER_LABELS[imageProvider]} в настройках проекта`)
+    if (!promptProviderKey) {
+      toast.error(`Укажите API-ключ для ${PROVIDER_LABELS[promptProvider]} в настройках проекта`)
       return
     }
     if (!preparedText.trim()) {
@@ -110,29 +143,67 @@ export function Step4_Images() {
       return
     }
 
-    setGenerating(true)
+    setPromptLoading(true)
     try {
-      const res = await aiApi.generateImages({
+      const res = await aiApi.generateImagePrompts({
+        provider: promptProvider,
+        model: promptModel,
+        api_key: promptProviderKey,
+        project_id: projectId,
+        source_text: preparedText,
+        creative_direction: imageDirection,
+        count: effectiveGenerateCount,
+      })
+      setGeneratedPrompts(res.prompts || [])
+      toast.success(`Сгенерировано ${res.prompts?.length || 0} промптов`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Ошибка генерации промптов')
+    } finally {
+      setPromptLoading(false)
+    }
+  }
+
+  const handleGenerateSingleImage = async (index: number) => {
+    if (!projectId) return
+    if (!providerKey) {
+      toast.error(`Укажите API-ключ для ${PROVIDER_LABELS[imageProvider]} в настройках проекта`)
+      return
+    }
+    const prompt = generatedPrompts[index]
+    if (!prompt?.trim()) {
+      toast.error('Промпт не может быть пустым')
+      return
+    }
+
+    setGeneratingSlots(prev => new Set(prev).add(index))
+    try {
+      const slot = index + 1
+      const result = await aiApi.generateSingleImage({
         provider: imageProvider,
         model: imageModel,
         api_key: providerKey,
         project_id: projectId,
-        source_text: preparedText,
-        creative_direction: imageDirection,
-        count: generateCount,
+        prompt,
+        slot,
       })
-      setGeneratedPrompts(res.prompts || [])
-      addImages(res.images.map((img: any) => ({
-        id: img.id,
-        filename: img.filename,
-        url: `${BASE_URL}/media/images/${projectId}/${img.filename}`,
-        order: images.length + img.order,
-      })))
-      toast.success(`Сгенерировано ${res.images.length} изображений`)
+      const newImg = {
+        id: result.filename,
+        filename: result.filename,
+        url: `${BASE_URL}/media/images/${projectId}/${result.filename}`,
+        order: result.order,
+      }
+      const slotStr = String(slot).padStart(3, '0')
+      const withoutOld = images.filter(img => !img.filename.includes(`_generated_${slotStr}`))
+      setImages([...withoutOld, newImg].map((img, i) => ({ ...img, order: i })))
+      toast.success('Изображение создано')
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Ошибка генерации изображений')
+      toast.error(e?.response?.data?.detail || 'Ошибка генерации изображения')
     } finally {
-      setGenerating(false)
+      setGeneratingSlots(prev => {
+        const next = new Set(prev)
+        next.delete(index)
+        return next
+      })
     }
   }
 
@@ -152,14 +223,15 @@ export function Step4_Images() {
         <section className="bg-surface-1 border border-border rounded-xl p-5 flex flex-col gap-4">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-muted uppercase tracking-wider">AI-генерация изображений</h3>
-            <Tooltip content="Сначала LLM сгенерирует список сцен-промптов по содержанию текста, затем изображения будут созданы по ним по очереди. Повторный запуск обновит AI-сгенерированные файлы с теми же именами.">
+            <Tooltip content="LLM сгенерирует список сцен-промптов, вы можете отредактировать каждый, затем создать изображения по одному или перегенерировать отдельные.">
               <HelpCircle size={14} className="text-muted" />
             </Tooltip>
           </div>
 
+          {/* Image generation provider — first, as it's the main choice */}
           <div className="grid grid-cols-2 gap-4">
             <Select
-              label="Провайдер"
+              label="Провайдер изображений"
               value={imageProvider}
               onChange={e => {
                 const provider = e.target.value as (typeof IMAGE_AI_PROVIDERS)[number]
@@ -172,7 +244,7 @@ export function Step4_Images() {
               }))}
             />
             <Select
-              label="Модель"
+              label="Модель изображений"
               value={imageModel}
               onChange={e => setImageModel(e.target.value)}
               options={modelOptions.map(model => ({ value: model.id, label: model.name }))}
@@ -186,41 +258,95 @@ export function Step4_Images() {
             </div>
           )}
 
+          {/* Prompt LLM — secondary choice */}
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              label="Провайдер для промптов"
+              value={promptProvider}
+              onChange={e => {
+                const provider = e.target.value as AIProvider
+                setPromptProvider(provider)
+                const first = AI_MODELS.find(m => m.provider === provider)
+                if (first) setPromptModel(first.id)
+              }}
+              options={(Object.keys(PROVIDER_LABELS) as AIProvider[]).map(provider => ({
+                value: provider,
+                label: PROVIDER_LABELS[provider],
+              }))}
+            />
+            <Select
+              label="Модель"
+              value={promptModel}
+              onChange={e => setPromptModel(e.target.value)}
+              options={promptModelOptions.map(model => ({ value: model.id, label: model.name }))}
+            />
+          </div>
+
+          {/* Style direction — no label */}
           <Textarea
-            label="Визуальное направление"
             value={imageDirection}
             onChange={e => setImageDirection(e.target.value)}
-            rows={6}
-            hint={recommended
-              ? `Система сначала соберёт ${generateCount} отдельных scene-prompts по смыслу текста, затем сгенерирует ${generateCount} изображений.`
-              : 'Сначала сгенерируйте озвучку, чтобы система рассчитала рекомендованное количество кадров.'}
+            rows={4}
+            placeholder={DEFAULT_DIRECTION}
           />
 
+          {/* Count + generate prompts */}
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={1}
+              max={99}
+              value={effectiveGenerateCount}
+              onChange={e => {
+                setCountTouched(true)
+                setGenerateCount(Math.max(1, Math.min(99, Number(e.target.value) || 1)))
+              }}
+              className="w-20 bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+            <span className="text-sm text-muted">
+              промптов{recommended ? ` (рекомендуется ${recommended})` : ''}
+            </span>
+            <Button
+              type="button"
+              onClick={handleGeneratePrompts}
+              loading={promptLoading}
+              icon={<Wand2 size={14} />}
+              disabled={!projectId || !preparedText.trim() || !promptModel}
+              className="ml-auto"
+            >
+              Сгенерировать промпты
+            </Button>
+          </div>
+
+          {/* Editable prompts with per-prompt image generation */}
           {generatedPrompts.length > 0 && (
-            <div className="rounded-xl border border-border bg-surface-2/60 p-4 flex flex-col gap-2">
-              <p className="text-xs font-semibold text-muted uppercase tracking-wider">Сгенерированные scene-prompts</p>
+            <div className="flex flex-col gap-3 pt-1">
+              <p className="text-xs font-semibold text-muted uppercase tracking-wider">Промпты — отредактируйте и создайте изображения</p>
               {generatedPrompts.map((prompt, index) => (
-                <div key={index} className="text-xs text-white/75 leading-relaxed">
-                  {index + 1}. {prompt}
+                <div key={index} className="flex gap-3 items-start">
+                  <div className="flex-1">
+                    <Textarea
+                      value={prompt}
+                      onChange={e => updatePrompt(index, e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleGenerateSingleImage(index)}
+                    loading={generatingSlots.has(index)}
+                    disabled={!providerKey}
+                    icon={hasGeneratedImage(index) ? <RefreshCw size={13} /> : <Image size={13} />}
+                    className="shrink-0 mt-0.5"
+                  >
+                    {hasGeneratedImage(index) ? 'Перегенерировать' : 'Создать'}
+                  </Button>
                 </div>
               ))}
             </div>
           )}
-
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted">
-              AI-изображения сохраняются в проект с постоянными именами `generated_001`, `generated_002` и так далее.
-            </p>
-            <Button
-              onClick={handleGenerateImages}
-              loading={generating}
-              disabled={!projectId || !recommended || !preparedText.trim()}
-              icon={<Wand2 size={16} />}
-              className="whitespace-nowrap"
-            >
-              {generating ? 'Генерация...' : `Сгенерировать ${generateCount} изображений`}
-            </Button>
-          </div>
         </section>
       )}
 
@@ -254,7 +380,7 @@ export function Step4_Images() {
               <>
                 Для аудио <span className="text-white font-medium">{Math.floor(audioDuration / 60)}:{String(Math.floor(audioDuration % 60)).padStart(2,'0')}</span> рекомендуется загрузить{' '}
                 <span className="text-white font-medium">{recommended} фото</span>{' '}
-                — по ~4 сек. на кадр (оптимально для восприятия).
+                — по ~4 сек. на кадр.
               </>
             ) : tooFew ? (
               <>

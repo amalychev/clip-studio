@@ -31,21 +31,36 @@ export function StartupPage({ onDone }: Props) {
   const [done, setDone] = useState(false)
   const [completedStages, setCompletedStages] = useState<string[]>([])
 
+  const finishStartup = () => {
+    setDone(true)
+    setCompletedStages(['uv', 'python', 'deps', 'backend'])
+    setTimeout(onDone, 300)
+  }
+
   useEffect(() => {
+    window.startup?.getState?.().then((state) => {
+      if (state.progress) setProgress(state.progress)
+      if (state.error) setError(state.error)
+      if (state.done) {
+        finishStartup()
+      }
+    }).catch(() => {})
+
     window.startup?.onProgress((data) => {
       setProgress(data)
-setCompletedStages(prev => {
+      setCompletedStages(prev => {
         const stages = ['uv', 'python', 'deps', 'backend']
         const currentIdx = stages.indexOf(data.stage)
         if (currentIdx < 0) return prev
         return stages.slice(0, currentIdx).filter(s => !prev.includes(s)).concat(prev)
       })
+      if (data.stage === 'done' || data.percent >= 100) {
+        finishStartup()
+      }
     })
 
     window.startup?.onDone(() => {
-      setDone(true)
-      setCompletedStages(['python', 'ffmpeg', 'venv', 'deps', 'backend'])
-      setTimeout(onDone, 800)
+      finishStartup()
     })
 
     window.startup?.onError((data) => {

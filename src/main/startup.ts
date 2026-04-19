@@ -35,6 +35,9 @@ const VENV_PYTHON = join(VENV_DIR, IS_WIN ? 'Scripts' : 'bin', IS_WIN ? 'python.
 const VENV_UVICORN = join(VENV_DIR, IS_WIN ? 'Scripts' : 'bin', IS_WIN ? 'uvicorn.exe' : 'uvicorn')
 
 export let backendProcess: ChildProcess | null = null
+export let startupState: Progress = { stage: 'init', message: 'Инициализация...', percent: 0 }
+export let startupDone = false
+export let startupError: string | null = null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -165,12 +168,17 @@ async function waitForHealth(ms = 60000): Promise<boolean> {
 
 export async function runStartup(backendDir: string, win: BrowserWindow): Promise<void> {
   const send: Send = (data) => {
+    startupState = data
     if (!win.isDestroyed()) win.webContents.send('startup:progress', data)
   }
+
+  startupDone = false
+  startupError = null
 
   // Already running?
   if (await checkHealth()) {
     send({ stage: 'done', message: 'Сервер уже запущен', percent: 100 })
+    startupDone = true
     return
   }
 
@@ -306,6 +314,7 @@ export async function runStartup(backendDir: string, win: BrowserWindow): Promis
   const ready = await waitForHealth()
   if (!ready) {
     backendProcess.kill()
+    startupError = 'Бекенд не запустился в течение 60 секунд.\nОткройте подробный лог для диагностики.'
     throw new Error(
       'Бекенд не запустился в течение 60 секунд.\n' +
       'Откройте подробный лог для диагностики.'
@@ -313,4 +322,5 @@ export async function runStartup(backendDir: string, win: BrowserWindow): Promis
   }
 
   send({ stage: 'done', message: 'Готово! Запуск приложения...', percent: 100 })
+  startupDone = true
 }

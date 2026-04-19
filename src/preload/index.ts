@@ -20,6 +20,8 @@ const startup = {
   onError: (cb: (data: { message: string }) => void) => {
     ipcRenderer.once('startup:error', (_, data) => cb(data))
   },
+  getState: (): Promise<{ progress: { stage: string; message: string; percent: number; log?: string }; done: boolean; error: string | null }> =>
+    ipcRenderer.invoke('startup:getState'),
   retry: (): Promise<void> => ipcRenderer.invoke('startup:retry'),
 }
 

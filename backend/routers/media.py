@@ -1,13 +1,16 @@
 import re
+import shutil
 import mutagen
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 import aiofiles
 from database import DATA_DIR
+from services.project_naming import get_project_slug
 
 ASSETS_MUSIC_DIR = Path(__file__).parent.parent / "assets" / "music"
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".ogg", ".wav", ".flac"}
+DEFAULT_WATERMARK_DIR = DATA_DIR / "default_watermark"
 
 router = APIRouter()
 
@@ -21,12 +24,14 @@ def _sanitize_name(value: str, fallback: str) -> str:
 async def upload_images(project_id: str, files: list[UploadFile] = File(...)):
     images_dir = DATA_DIR / "projects" / project_id / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
+    project_slug = get_project_slug(project_id)
 
     result = []
     used_names: set[str] = set()
     for i, file in enumerate(files):
         ext = Path(file.filename or "img.jpg").suffix.lower() or ".jpg"
-        base_name = _sanitize_name(Path(file.filename or "").stem, f"image_{i + 1:03d}")
+        original_base = _sanitize_name(Path(file.filename or "").stem, f"image_{i + 1:03d}")
+        base_name = f"{project_slug}_{original_base}"
         candidate = base_name
         suffix = 2
         while candidate in used_names:
@@ -79,16 +84,67 @@ def delete_image(project_id: str, filename: str):
 async def upload_watermark(project_id: str, file: UploadFile = File(...)):
     watermark_dir = DATA_DIR / "projects" / project_id / "watermark"
     watermark_dir.mkdir(parents=True, exist_ok=True)
+    project_slug = get_project_slug(project_id)
 
     ext = Path(file.filename or "watermark.png").suffix.lower() or ".png"
-    for old in watermark_dir.glob("watermark.*"):
+    for old in watermark_dir.glob("*_watermark.*"):
         old.unlink(missing_ok=True)
 
-    filename = f"watermark{ext}"
+    filename = f"{project_slug}_watermark{ext}"
     dest = watermark_dir / filename
     async with aiofiles.open(dest, "wb") as f:
         await f.write(await file.read())
 
+    return {"filename": filename}
+
+
+@router.post("/default-watermark")
+async def upload_default_watermark(file: UploadFile = File(...)):
+    DEFAULT_WATERMARK_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename or "watermark.png").suffix.lower() or ".png"
+    for old in DEFAULT_WATERMARK_DIR.glob("default_watermark.*"):
+        old.unlink(missing_ok=True)
+
+    filename = f"default_watermark{ext}"
+    dest = DEFAULT_WATERMARK_DIR / filename
+    async with aiofiles.open(dest, "wb") as f:
+        await f.write(await file.read())
+
+    return {"filename": filename}
+
+
+@router.get("/default-watermark/{filename}")
+def get_default_watermark(filename: str):
+    path = DEFAULT_WATERMARK_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, "Not found")
+    return FileResponse(str(path))
+
+
+@router.delete("/default-watermark/{filename}")
+def delete_default_watermark(filename: str):
+    path = DEFAULT_WATERMARK_DIR / filename
+    if path.exists():
+        path.unlink()
+    return {"ok": True}
+
+
+@router.post("/default-watermark/apply/{project_id}")
+def apply_default_watermark(project_id: str):
+    DEFAULT_WATERMARK_DIR.mkdir(parents=True, exist_ok=True)
+    source = next((f for f in DEFAULT_WATERMARK_DIR.glob("default_watermark.*") if f.is_file()), None)
+    if not source:
+        raise HTTPException(404, "Default watermark not found")
+
+    watermark_dir = DATA_DIR / "projects" / project_id / "watermark"
+    watermark_dir.mkdir(parents=True, exist_ok=True)
+    project_slug = get_project_slug(project_id)
+    for old in watermark_dir.glob("*_watermark.*"):
+        old.unlink(missing_ok=True)
+
+    filename = f"{project_slug}_watermark{source.suffix.lower() or '.png'}"
+    dest = watermark_dir / filename
+    shutil.copy2(str(source), str(dest))
     return {"filename": filename}
 
 
@@ -111,6 +167,18 @@ def delete_watermark(project_id: str, filename: str):
 @router.get("/audio/{project_id}/{filename}")
 def get_audio(project_id: str, filename: str):
     path = DATA_DIR / "projects" / project_id / "audio" / filename
+    if not path.exists():
+        raise HTTPException(404, "Not found")
+    return FileResponse(str(path), headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    })
+
+
+@router.get("/video/{project_id}/{filename}")
+def get_video(project_id: str, filename: str):
+    path = DATA_DIR / "projects" / project_id / "video" / filename
     if not path.exists():
         raise HTTPException(404, "Not found")
     return FileResponse(str(path), headers={

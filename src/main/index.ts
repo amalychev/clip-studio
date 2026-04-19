@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { runStartup, backendProcess, BACKEND_PORT } from './startup'
+import { runStartup, backendProcess, startupDone, startupError, startupState } from './startup'
 
 app.setName('Clip Studio')
 process.title = 'Clip Studio'
@@ -61,10 +61,30 @@ app.whenReady().then(async () => {
     ? join(__dirname, '../../backend')
     : join(process.resourcesPath, 'backend')
 
-  // Wait for renderer to be ready, then kick off startup
-  win.webContents.once('did-finish-load', async () => {
+  let startupPromise: Promise<void> | null = null
+  const ensureStartup = async () => {
+    if (!startupPromise) {
+      startupPromise = runStartup(backendDir, win).finally(() => {
+        startupPromise = null
+      })
+    }
+    return startupPromise
+  }
+
+  win.webContents.on('did-finish-load', async () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('startup:progress', startupState)
+      if (startupDone) {
+        win.webContents.send('startup:done')
+        return
+      }
+      if (startupError) {
+        win.webContents.send('startup:error', { message: startupError })
+      }
+    }
+
     try {
-      await runStartup(backendDir, win)
+      await ensureStartup()
       if (!win.isDestroyed()) {
         win.webContents.send('startup:done')
       }
@@ -119,3 +139,9 @@ ipcMain.handle('startup:retry', async (event) => {
     win.webContents.send('startup:error', { message: String(err.message || err) })
   }
 })
+
+ipcMain.handle('startup:getState', async () => ({
+  progress: startupState,
+  done: startupDone,
+  error: startupError,
+}))

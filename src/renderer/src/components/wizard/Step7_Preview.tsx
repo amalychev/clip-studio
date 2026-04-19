@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { clsx } from 'clsx'
 import { useWizardStore } from '../../stores/wizardStore'
-import { BASE_URL } from '../../lib/api'
+import { BASE_URL, videoApi } from '../../lib/api'
 import type { SubtitleEntry, SubtitleStyle, UploadedImage } from '../../types'
 import { getActiveSubtitleWordIndex, splitSubtitleTokens } from '../../lib/subtitles'
 import {
   Play, Pause, SkipBack, ArrowLeft, ArrowRight, Volume2,
-  AlignLeft, AlignCenter, AlignRight, X, Music, Mic, FileText,
+  AlignLeft, AlignCenter, AlignRight, X, Music, Mic, FileText, Loader2,
 } from 'lucide-react'
 import { Button } from '../ui/Button'
 
@@ -20,10 +20,10 @@ const LEAD_OUT = 2
 const DT_IMG = 'cs-image-id'   // dataTransfer key for images
 
 const FORMATS = [
-  { id: '9:16', label: '9:16', w: 9, h: 16 },
-  { id: '1:1',  label: '1:1',  w: 1, h: 1  },
-  { id: '4:5',  label: '4:5',  w: 4, h: 5  },
-  { id: '16:9', label: '16:9', w: 16, h: 9 },
+  { id: '9:16', label: '9:16', w: 9, h: 16, width: 1080, height: 1920 },
+  { id: '1:1',  label: '1:1',  w: 1, h: 1,  width: 1080, height: 1080 },
+  { id: '4:5',  label: '4:5',  w: 4, h: 5,  width: 1080, height: 1350 },
+  { id: '16:9', label: '16:9', w: 16, h: 9, width: 1920, height: 1080 },
 ] as const
 type FormatId = typeof FORMATS[number]['id']
 
@@ -147,21 +147,49 @@ function StyleEditor({
   style: SubtitleStyle
   onChange: (p: Partial<SubtitleStyle>) => void
 }) {
+  const [draft, setDraft] = useState({
+    fontSize: style.fontSize,
+    bgOpacity: style.bgOpacity,
+    positionMargin: style.positionMargin,
+    textColor: style.textColor,
+    bgColor: style.bgColor,
+    activeWordColor: style.activeWordColor,
+  })
+
+  useEffect(() => {
+    setDraft({
+      fontSize: style.fontSize,
+      bgOpacity: style.bgOpacity,
+      positionMargin: style.positionMargin,
+      textColor: style.textColor,
+      bgColor: style.bgColor,
+      activeWordColor: style.activeWordColor,
+    })
+  }, [style.fontSize, style.bgOpacity, style.positionMargin, style.textColor, style.bgColor, style.activeWordColor])
+
   return (
     <div className="bg-surface-1 border border-border rounded-xl p-3 h-full overflow-y-auto flex flex-col gap-3">
       <p className="text-xs font-semibold text-muted uppercase tracking-wider shrink-0">Стиль субтитров</p>
 
       <div className="w-full">
-        <label className="text-xs text-muted">Размер {style.fontSize}%</label>
-        <input type="range" min={1} max={15} step={0.5} value={style.fontSize}
-          onChange={e => onChange({ fontSize: +e.target.value })}
+        <label className="text-xs text-muted">Размер {draft.fontSize}%</label>
+        <input type="range" min={1} max={15} step={0.5} value={draft.fontSize}
+          onChange={e => setDraft(prev => ({ ...prev, fontSize: +e.target.value }))}
+          onMouseUp={() => onChange({ fontSize: draft.fontSize })}
+          onTouchEnd={() => onChange({ fontSize: draft.fontSize })}
+          onKeyUp={() => onChange({ fontSize: draft.fontSize })}
+          onBlur={() => onChange({ fontSize: draft.fontSize })}
           className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
       </div>
 
       <div className="w-full">
-        <label className="text-xs text-muted">Прозрачность фона {style.bgOpacity}%</label>
-        <input type="range" min={0} max={100} value={style.bgOpacity}
-          onChange={e => onChange({ bgOpacity: +e.target.value })}
+        <label className="text-xs text-muted">Прозрачность фона {draft.bgOpacity}%</label>
+        <input type="range" min={0} max={100} value={draft.bgOpacity}
+          onChange={e => setDraft(prev => ({ ...prev, bgOpacity: +e.target.value }))}
+          onMouseUp={() => onChange({ bgOpacity: draft.bgOpacity })}
+          onTouchEnd={() => onChange({ bgOpacity: draft.bgOpacity })}
+          onKeyUp={() => onChange({ bgOpacity: draft.bgOpacity })}
+          onBlur={() => onChange({ bgOpacity: draft.bgOpacity })}
           className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
       </div>
 
@@ -169,19 +197,23 @@ function StyleEditor({
         <div className="flex-1 flex flex-col gap-2">
           <label className="text-xs text-muted">Цвет текста</label>
           <div className="flex items-center gap-2">
-            <input type="color" value={style.textColor}
-              onChange={e => onChange({ textColor: e.target.value })}
+            <input type="color" value={draft.textColor}
+              onChange={e => setDraft(prev => ({ ...prev, textColor: e.target.value }))}
+              onBlur={() => onChange({ textColor: draft.textColor })}
+              onMouseUp={() => onChange({ textColor: draft.textColor })}
               className="w-8 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5" />
-            <span className="text-xs text-muted font-mono">{style.textColor}</span>
+            <span className="text-xs text-muted font-mono">{draft.textColor}</span>
           </div>
         </div>
         <div className="flex-1 flex flex-col gap-2">
           <label className="text-xs text-muted">Цвет фона</label>
           <div className="flex items-center gap-2">
-            <input type="color" value={style.bgColor}
-              onChange={e => onChange({ bgColor: e.target.value })}
+            <input type="color" value={draft.bgColor}
+              onChange={e => setDraft(prev => ({ ...prev, bgColor: e.target.value }))}
+              onBlur={() => onChange({ bgColor: draft.bgColor })}
+              onMouseUp={() => onChange({ bgColor: draft.bgColor })}
               className="w-8 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5" />
-            <span className="text-xs text-muted font-mono">{style.bgColor}</span>
+            <span className="text-xs text-muted font-mono">{draft.bgColor}</span>
           </div>
         </div>
       </div>
@@ -200,10 +232,12 @@ function StyleEditor({
         <div className="flex-1 flex flex-col gap-2">
           <label className="text-xs text-muted">Цвет активного слова</label>
           <div className="flex items-center gap-2">
-            <input type="color" value={style.activeWordColor}
-              onChange={e => onChange({ activeWordColor: e.target.value })}
+            <input type="color" value={draft.activeWordColor}
+              onChange={e => setDraft(prev => ({ ...prev, activeWordColor: e.target.value }))}
+              onBlur={() => onChange({ activeWordColor: draft.activeWordColor })}
+              onMouseUp={() => onChange({ activeWordColor: draft.activeWordColor })}
               className="w-8 h-7 rounded cursor-pointer border border-border bg-transparent p-0.5" />
-            <span className="text-xs text-muted font-mono">{style.activeWordColor}</span>
+            <span className="text-xs text-muted font-mono">{draft.activeWordColor}</span>
           </div>
         </div>
       )}
@@ -228,9 +262,13 @@ function StyleEditor({
 
       {style.position !== 'center' && (
         <div className="w-full">
-          <label className="text-xs text-muted">Отступ от края {style.positionMargin}%</label>
-          <input type="range" min={0} max={30} step={0.5} value={style.positionMargin}
-            onChange={e => onChange({ positionMargin: +e.target.value })}
+          <label className="text-xs text-muted">Отступ от края {draft.positionMargin}%</label>
+          <input type="range" min={0} max={30} step={0.5} value={draft.positionMargin}
+            onChange={e => setDraft(prev => ({ ...prev, positionMargin: +e.target.value }))}
+            onMouseUp={() => onChange({ positionMargin: draft.positionMargin })}
+            onTouchEnd={() => onChange({ positionMargin: draft.positionMargin })}
+            onKeyUp={() => onChange({ positionMargin: draft.positionMargin })}
+            onBlur={() => onChange({ positionMargin: draft.positionMargin })}
             className="w-full accent-accent h-1.5 cursor-pointer mt-2" />
         </div>
       )}
@@ -405,8 +443,18 @@ function Timeline({
   const containerRef = useRef<HTMLDivElement>(null)
   const [dragging, setDragging] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
+  const [draftSpeechVolume, setDraftSpeechVolume] = useState(speechVolume)
+  const [draftMusicVolume, setDraftMusicVolume] = useState(musicVolume)
   const isDraggingPlayhead = useRef(false)
   const totalWidth = Math.max(duration * PX_PER_SEC, 300)
+
+  useEffect(() => {
+    setDraftSpeechVolume(speechVolume)
+  }, [speechVolume])
+
+  useEffect(() => {
+    setDraftMusicVolume(musicVolume)
+  }, [musicVolume])
 
   const xToTime = useCallback((clientX: number) => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -462,19 +510,27 @@ function Timeline({
         <div className="flex items-center gap-2">
           <Volume2 size={12} className="text-muted shrink-0" />
           <span className="text-xs text-muted shrink-0">Речь</span>
-          <input type="range" min={0} max={100} value={speechVolume}
-            onChange={e => onSpeechVolume(+e.target.value)}
+          <input type="range" min={0} max={100} value={draftSpeechVolume}
+            onChange={e => setDraftSpeechVolume(+e.target.value)}
+            onMouseUp={() => onSpeechVolume(draftSpeechVolume)}
+            onTouchEnd={() => onSpeechVolume(draftSpeechVolume)}
+            onKeyUp={() => onSpeechVolume(draftSpeechVolume)}
+            onBlur={() => onSpeechVolume(draftSpeechVolume)}
             className="w-20 accent-accent h-1 cursor-pointer" />
-          <span className="text-xs text-muted w-7">{speechVolume}%</span>
+          <span className="text-xs text-muted w-7">{draftSpeechVolume}%</span>
         </div>
         {hasMusic && (
           <div className="flex items-center gap-2">
             <Volume2 size={12} className="text-muted shrink-0" />
             <span className="text-xs text-muted shrink-0">Музыка</span>
-            <input type="range" min={0} max={100} value={musicVolume}
-              onChange={e => onMusicVolume(+e.target.value)}
+            <input type="range" min={0} max={100} value={draftMusicVolume}
+              onChange={e => setDraftMusicVolume(+e.target.value)}
+              onMouseUp={() => onMusicVolume(draftMusicVolume)}
+              onTouchEnd={() => onMusicVolume(draftMusicVolume)}
+              onKeyUp={() => onMusicVolume(draftMusicVolume)}
+              onBlur={() => onMusicVolume(draftMusicVolume)}
               className="w-20 accent-accent h-1 cursor-pointer" />
-            <span className="text-xs text-muted w-7">{musicVolume}%</span>
+            <span className="text-xs text-muted w-7">{draftMusicVolume}%</span>
           </div>
         )}
       </div>
@@ -640,20 +696,34 @@ function Timeline({
 
 export function Step7_Preview() {
   const {
-    images, audioUrl, audioDuration, selectedMusicId, musicVolume, speechVolume,
+    projectId, images, audioFilename, audioDuration, selectedMusicId, musicVolume, speechVolume,
     subtitles, subtitleStyle, setSubtitleStyle, setMusicVolume, setSpeechVolume,
     setMusic, setSubtitles, nextStep, prevStep,
     enableImageTransitions, setEnableImageTransitions,
-    watermarkUrl,
+    watermarkFilename, previewFormatId, setPreviewFormatId, previewVideoUrl, setPreviewVideo,
     timelineImageIds: storeTimelineIds, setTimelineImageIds: syncTimelineIds,
   } = useWizardStore()
 
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [formatId, setFormatId] = useState<FormatId>('9:16')
   const [timelineImageIds, setTimelineImageIds] = useState<string[]>(
     () => storeTimelineIds.length ? storeTimelineIds : images.map(i => i.id)
   )
+  const [previewStatus, setPreviewStatus] = useState<'idle' | 'rendering' | 'ready' | 'error'>('idle')
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewRequestRef = useRef(0)
+  const previewAbortRef = useRef<AbortController | null>(null)
+  const previewInFlightRef = useRef(false)
+  const pendingPreviewRef = useRef<{
+    signature: string
+    payload: Parameters<typeof videoApi.renderPreview>[1]
+  } | null>(null)
+  const activePreviewSignatureRef = useRef<string | null>(null)
+  const desiredTimeRef = useRef(0)
+  const shouldResumeRef = useRef(false)
+  const formatId = previewFormatId
 
   // Sync local → store whenever timeline order/selection changes
   useEffect(() => {
@@ -672,46 +742,14 @@ export function Step7_Preview() {
   const timelineImages = timelineImageIds
     .map(id => images.find(img => img.id === id))
     .filter(Boolean) as UploadedImage[]
-
-  const ttsRef = useRef<HTMLAudioElement | null>(null)
-  const musicRef = useRef<HTMLAudioElement | null>(null)
-  const rafRef = useRef<number>(0)
-  const ttsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const posRef = useRef(0)
-  const isPlayingRef = useRef(false)
-  const playStartWallRef = useRef(0)
-  const playStartPosRef = useRef(0)
+  const timelineImageFilenames = timelineImages.map(image => image.filename)
 
   const totalDuration = audioDuration > 0 ? audioDuration + LEAD_IN + LEAD_OUT : 0
   const imageDuration = totalDuration > 0 && timelineImages.length > 0 ? totalDuration / timelineImages.length : 5
-  const transitionDuration = enableImageTransitions ? getTransitionDuration(imageDuration) : 0
-  const currentImageIdx = timelineImages.length > 0
-    ? Math.min(Math.floor(currentTime / imageDuration), timelineImages.length - 1)
-    : -1
-  const currentImage = currentImageIdx >= 0 ? timelineImages[currentImageIdx] : null
-  const nextImage = currentImageIdx >= 0 && currentImageIdx < timelineImages.length - 1
-    ? timelineImages[currentImageIdx + 1]
-    : null
-  const timeInCurrentImage = currentImageIdx >= 0 ? currentTime - currentImageIdx * imageDuration : 0
-  const transitionStart = Math.max(imageDuration - transitionDuration, 0)
-  const transitionProgress = transitionDuration > 0 && nextImage && timeInCurrentImage >= transitionStart
-    ? Math.min((timeInCurrentImage - transitionStart) / transitionDuration, 1)
-    : 0
-  const edgeBlurDuration = enableImageTransitions
-    ? (totalDuration >= 0.9 ? 0.45 : Math.max(totalDuration / 2, 0))
-    : 0
-  const introBlurProgress = edgeBlurDuration > 0 && currentTime < edgeBlurDuration
-    ? 1 - currentTime / edgeBlurDuration
-    : 0
-  const outroBlurProgress = edgeBlurDuration > 0 && currentTime > totalDuration - edgeBlurDuration
-    ? (currentTime - (totalDuration - edgeBlurDuration)) / edgeBlurDuration
-    : 0
-  const edgeBlurProgress = Math.max(0, Math.min(Math.max(introBlurProgress, outroBlurProgress), 1))
-
-  const ttsRelTime = currentTime - LEAD_IN
-  const currentSubtitle = ttsRelTime >= 0 && ttsRelTime <= audioDuration
-    ? subtitles.find(s => ttsRelTime >= s.startTime && ttsRelTime <= s.endTime) ?? null
-    : null
+  const selectedFormat = FORMATS.find(f => f.id === formatId) ?? FORMATS[0]
+  const timelineImageKey = timelineImageFilenames.join('|')
+  const subtitlesKey = JSON.stringify(subtitles)
+  const subtitleStyleKey = JSON.stringify(subtitleStyle)
 
   const timelineSubtitles = subtitles.map(s => ({
     ...s,
@@ -719,113 +757,45 @@ export function Step7_Preview() {
     endTime: s.endTime + LEAD_IN,
   }))
 
-  useEffect(() => () => {
-    ttsRef.current?.pause()
-    musicRef.current?.pause()
-    cancelAnimationFrame(rafRef.current)
-    if (ttsTimerRef.current) clearTimeout(ttsTimerRef.current)
+  useEffect(() => {
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
+      previewAbortRef.current?.abort()
+      videoRef.current?.pause()
+    }
   }, [])
 
-  useEffect(() => { if (ttsRef.current) ttsRef.current.volume = speechVolume / 100 }, [speechVolume])
-  useEffect(() => { if (musicRef.current) musicRef.current.volume = musicVolume / 100 }, [musicVolume])
-
   const stopPlayback = useCallback(() => {
-    ttsRef.current?.pause()
-    musicRef.current?.pause()
-    cancelAnimationFrame(rafRef.current)
-    if (ttsTimerRef.current) { clearTimeout(ttsTimerRef.current); ttsTimerRef.current = null }
-    isPlayingRef.current = false
+    videoRef.current?.pause()
     setIsPlaying(false)
   }, [])
 
   const startPlayback = useCallback((startPos: number) => {
-    if (!audioUrl || !totalDuration) return
-    // If at the end, restart from beginning
-    if (startPos >= totalDuration) {
-      posRef.current = 0
-      setCurrentTime(0)
-      if (ttsRef.current) ttsRef.current.currentTime = 0
-      if (musicRef.current) musicRef.current.currentTime = 0
-      startPos = 0
+    const video = videoRef.current
+    if (!video || !previewVideoUrl) return
+    const duration = video.duration || totalDuration
+    const targetTime = startPos >= duration ? 0 : Math.max(0, Math.min(startPos, duration))
+    if (Math.abs(video.currentTime - targetTime) > 0.05) {
+      video.currentTime = targetTime
     }
-
-    if (!ttsRef.current) ttsRef.current = new Audio(audioUrl)
-    ttsRef.current.volume = speechVolume / 100
-    ttsRef.current.loop = false
-    ttsRef.current.onended = null
-
-    if (selectedMusicId) {
-      if (!musicRef.current) musicRef.current = new Audio(`${BASE_URL}/media/music/${selectedMusicId}`)
-      musicRef.current.volume = musicVolume / 100
-      musicRef.current.loop = true
-      const musicDur = musicRef.current.duration || 0
-      musicRef.current.currentTime = musicDur > 0 ? startPos % musicDur : 0
-      musicRef.current.play()
-    }
-
-    const ttsDelayMs = Math.max(0, (LEAD_IN - startPos) * 1000)
-    if (ttsDelayMs > 0) {
-      ttsRef.current.currentTime = 0
-      ttsTimerRef.current = setTimeout(() => {
-        if (isPlayingRef.current) ttsRef.current?.play()
-        ttsTimerRef.current = null
-      }, ttsDelayMs)
-    } else {
-      const ttsOffset = Math.min(startPos - LEAD_IN, audioDuration || 0)
-      ttsRef.current.currentTime = ttsOffset
-      if (ttsOffset < (audioDuration || 0)) ttsRef.current.play()
-    }
-
-    playStartWallRef.current = Date.now()
-    playStartPosRef.current = startPos
-    isPlayingRef.current = true
-    setIsPlaying(true)
-
-    const tick = () => {
-      const elapsed = (Date.now() - playStartWallRef.current) / 1000
-      const t = playStartPosRef.current + elapsed
-      if (t >= totalDuration) {
-        posRef.current = totalDuration
-        setCurrentTime(totalDuration)
-        ttsRef.current?.pause()
-        musicRef.current?.pause()
-        if (ttsTimerRef.current) { clearTimeout(ttsTimerRef.current); ttsTimerRef.current = null }
-        isPlayingRef.current = false
-        setIsPlaying(false)
-        return
-      }
-      posRef.current = t
-      setCurrentTime(t)
-      rafRef.current = requestAnimationFrame(tick)
-    }
-    rafRef.current = requestAnimationFrame(tick)
-  }, [audioUrl, audioDuration, totalDuration, speechVolume, musicVolume, selectedMusicId])
+    video.play().catch(() => {})
+  }, [previewVideoUrl, totalDuration])
 
   const seekTo = useCallback((t: number) => {
-    const clamped = Math.max(0, Math.min(t, totalDuration))
-    posRef.current = clamped
+    const video = videoRef.current
+    const duration = video?.duration || totalDuration
+    const clamped = Math.max(0, Math.min(t, duration))
+    if (video) video.currentTime = clamped
     setCurrentTime(clamped)
-    if (ttsRef.current)
-      ttsRef.current.currentTime = Math.max(0, Math.min(clamped - LEAD_IN, audioDuration || 0))
-    if (musicRef.current) {
-      const dur = musicRef.current.duration || 0
-      musicRef.current.currentTime = dur > 0 ? clamped % dur : 0
-    }
-  }, [totalDuration, audioDuration])
+  }, [totalDuration])
 
   const handleSeek = useCallback((t: number) => {
-    const wasPlaying = isPlayingRef.current
-    stopPlayback()
     seekTo(t)
-    if (wasPlaying) setTimeout(() => startPlayback(Math.max(0, Math.min(t, totalDuration))), 50)
-  }, [stopPlayback, seekTo, startPlayback, totalDuration])
+  }, [seekTo])
 
   const handleReset = () => {
     stopPlayback()
-    posRef.current = 0
-    setCurrentTime(0)
-    if (ttsRef.current) ttsRef.current.currentTime = 0
-    if (musicRef.current) musicRef.current.currentTime = 0
+    seekTo(0)
   }
 
   const handleReorder = (from: number, to: number) => {
@@ -836,6 +806,156 @@ export function Step7_Preview() {
       return next
     })
   }
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const syncTime = () => setCurrentTime(video.currentTime || 0)
+    const onPlay = () => setIsPlaying(true)
+    const onPause = () => setIsPlaying(false)
+    const onEnded = () => {
+      setIsPlaying(false)
+      setCurrentTime(video.duration || totalDuration)
+    }
+    const onLoaded = () => {
+      const targetTime = Math.max(0, Math.min(desiredTimeRef.current, video.duration || totalDuration || 0))
+      if (targetTime > 0) video.currentTime = targetTime
+      setCurrentTime(video.currentTime || 0)
+      if (shouldResumeRef.current) {
+        video.play().catch(() => {})
+      }
+      shouldResumeRef.current = false
+      setPreviewStatus('ready')
+      setPreviewError(null)
+    }
+
+    video.addEventListener('timeupdate', syncTime)
+    video.addEventListener('play', onPlay)
+    video.addEventListener('pause', onPause)
+    video.addEventListener('ended', onEnded)
+    video.addEventListener('loadedmetadata', onLoaded)
+    return () => {
+      video.removeEventListener('timeupdate', syncTime)
+      video.removeEventListener('play', onPlay)
+      video.removeEventListener('pause', onPause)
+      video.removeEventListener('ended', onEnded)
+      video.removeEventListener('loadedmetadata', onLoaded)
+    }
+  }, [previewVideoUrl, totalDuration])
+
+  const runPreviewRender = useCallback(async (
+    signature: string,
+    payload: Parameters<typeof videoApi.renderPreview>[1]
+  ) => {
+    if (!projectId) return
+
+    previewInFlightRef.current = true
+    activePreviewSignatureRef.current = signature
+    previewAbortRef.current?.abort()
+    const abortController = new AbortController()
+    previewAbortRef.current = abortController
+    const requestId = ++previewRequestRef.current
+
+    try {
+      const res = await videoApi.renderPreview(projectId, payload, abortController.signal)
+      if (requestId !== previewRequestRef.current) return
+      setPreviewVideo(
+        res.filename,
+        `${BASE_URL}/media/video/${projectId}/${res.filename}?v=${Date.now()}`
+      )
+    } catch (error: any) {
+      if (abortController.signal.aborted) return
+      if (requestId !== previewRequestRef.current) return
+      setPreviewStatus('error')
+      setPreviewError(error?.response?.data?.detail || 'Не удалось обновить preview.mp4')
+    } finally {
+      if (previewAbortRef.current === abortController) {
+        previewAbortRef.current = null
+      }
+      previewInFlightRef.current = false
+
+      const pending = pendingPreviewRef.current
+      if (pending && pending.signature !== signature) {
+        pendingPreviewRef.current = null
+        void runPreviewRender(pending.signature, pending.payload)
+      }
+    }
+  }, [projectId, setPreviewVideo])
+
+  useEffect(() => {
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
+    if (!projectId || !audioFilename || timelineImages.length === 0) {
+      previewAbortRef.current?.abort()
+      pendingPreviewRef.current = null
+      activePreviewSignatureRef.current = null
+      setPreviewStatus('idle')
+      setPreviewError(null)
+      setPreviewVideo(null, null)
+      return
+    }
+
+    const payload = {
+      format: { id: selectedFormat.id, width: selectedFormat.width, height: selectedFormat.height },
+      audio_filename: audioFilename,
+      image_filenames: timelineImageFilenames,
+      music_id: selectedMusicId,
+      music_volume: musicVolume / 100,
+      subtitles,
+      subtitle_style: subtitleStyle,
+      speech_volume: speechVolume / 100,
+      audio_duration: audioDuration,
+      enable_image_transitions: enableImageTransitions,
+      watermark_filename: watermarkFilename,
+      lead_in: LEAD_IN,
+      lead_out: LEAD_OUT,
+    } satisfies Parameters<typeof videoApi.renderPreview>[1]
+    const signature = JSON.stringify(payload)
+
+    if (!previewVideoUrl && !previewInFlightRef.current) {
+      setPreviewStatus('rendering')
+    }
+
+    previewTimerRef.current = setTimeout(() => {
+      desiredTimeRef.current = videoRef.current?.currentTime ?? currentTime
+      shouldResumeRef.current = !!videoRef.current && !videoRef.current.paused
+      setPreviewStatus('rendering')
+      setPreviewError(null)
+
+      if (previewInFlightRef.current) {
+        pendingPreviewRef.current = { signature, payload }
+        return
+      }
+      if (activePreviewSignatureRef.current === signature) {
+        setPreviewStatus('ready')
+        return
+      }
+      void runPreviewRender(signature, payload)
+    }, 500)
+
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
+    }
+  }, [
+    projectId,
+    audioFilename,
+    audioDuration,
+    timelineImageKey,
+    selectedMusicId,
+    musicVolume,
+    subtitlesKey,
+    subtitleStyleKey,
+    speechVolume,
+    enableImageTransitions,
+    watermarkFilename,
+    selectedFormat.id,
+    selectedFormat.width,
+    selectedFormat.height,
+    currentTime,
+    previewVideoUrl,
+    runPreviewRender,
+    setPreviewVideo,
+  ])
 
   const handleAddToTimeline = (id: string, atIdx: number) => {
     setTimelineImageIds(prev => {
@@ -850,14 +970,16 @@ export function Step7_Preview() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const t = e.target as HTMLElement
+      if (t instanceof HTMLTextAreaElement) return
+      if (t instanceof HTMLInputElement && t.type !== 'range') return
       e.preventDefault()
-      if (isPlayingRef.current) stopPlayback()
-      else startPlayback(posRef.current)
+      if (isPlaying) stopPlayback()
+      else startPlayback(currentTime)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [stopPlayback, startPlayback])
+  }, [isPlaying, currentTime, stopPlayback, startPlayback])
 
   return (
     <div className="-m-8 flex" style={{ height: 'calc(100vh - 116px)' }}>
@@ -870,7 +992,7 @@ export function Step7_Preview() {
         <div className="flex-1 min-w-0">
           <AssetsPanel
             images={images}
-              audioUrl={audioUrl}
+              audioUrl={audioFilename ? 'ready' : null}
               audioDuration={audioDuration}
               selectedMusicId={selectedMusicId}
               subtitles={subtitles}
@@ -903,8 +1025,8 @@ export function Step7_Preview() {
               className="w-7 h-7 rounded-lg bg-surface-2 border border-border hover:border-accent flex items-center justify-center transition-colors">
               <SkipBack size={13} className="text-muted" />
             </button>
-            <button onClick={isPlaying ? stopPlayback : () => startPlayback(posRef.current)}
-              disabled={!audioUrl || !totalDuration}
+            <button onClick={isPlaying ? stopPlayback : () => startPlayback(currentTime)}
+              disabled={!previewVideoUrl || !totalDuration}
               className="w-8 h-8 rounded-full bg-accent hover:bg-accent-hover disabled:opacity-40 flex items-center justify-center transition-colors">
               {isPlaying ? <Pause size={15} className="text-white" /> : <Play size={15} className="text-white ml-0.5" />}
             </button>
@@ -952,7 +1074,7 @@ export function Step7_Preview() {
         {/* Format picker */}
         <div className="flex gap-1 shrink-0">
           {FORMATS.map(f => (
-            <button key={f.id} onClick={() => setFormatId(f.id)}
+            <button key={f.id} onClick={() => setPreviewFormatId(f.id)}
               className={clsx('flex-1 py-1.5 rounded-lg border text-xs transition-colors',
                 formatId === f.id ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-white'
               )}>
@@ -961,18 +1083,40 @@ export function Step7_Preview() {
           ))}
         </div>
 
-        <PreviewCanvas
-          imageUrl={currentImage?.url ?? null}
-          nextImageUrl={nextImage?.url ?? null}
-          transitionProgress={transitionProgress}
-          edgeBlurProgress={edgeBlurProgress}
-          transitionsEnabled={enableImageTransitions}
-          watermarkUrl={watermarkUrl}
-          subtitle={currentSubtitle}
-          subtitleTime={ttsRelTime}
-          style={subtitleStyle}
-          formatId={formatId}
-        />
+        <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-border bg-black relative">
+          {previewVideoUrl ? (
+            <video
+              ref={videoRef}
+              key={previewVideoUrl}
+              src={previewVideoUrl}
+              className="w-full h-full object-contain bg-black"
+              playsInline
+              preload="auto"
+              onClick={() => {
+                if (isPlaying) stopPlayback()
+                else startPlayback(currentTime)
+              }}
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-muted">
+              {(!audioFilename || timelineImages.length === 0) && 'Добавьте озвучку и изображения'}
+            </div>
+          )}
+
+          {previewStatus === 'rendering' && (
+            <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+              <div className="w-11 h-11 rounded-full border border-white/10 bg-surface-1/90 shadow-lg backdrop-blur-md flex items-center justify-center">
+                <Loader2 size={18} className="animate-spin text-accent" />
+              </div>
+            </div>
+          )}
+
+          {previewStatus === 'error' && previewError && (
+            <div className="absolute left-3 right-3 bottom-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-white/85">
+              {previewError}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

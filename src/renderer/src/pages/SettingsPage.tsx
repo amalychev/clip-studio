@@ -1,9 +1,11 @@
 import { useSettingsStore } from '../stores/settingsStore'
+import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
 import { Button } from '../components/ui/Button'
+import { BASE_URL, mediaApi } from '../lib/api'
 import { AI_MODELS, PROVIDER_LABELS, TTS_VOICES, type AIProvider } from '../types'
-import { Settings, Eye, EyeOff } from 'lucide-react'
-import { useState } from 'react'
+import { Settings, Eye, EyeOff, ImagePlus, Trash2 } from 'lucide-react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import toast from 'react-hot-toast'
 
 const PROVIDERS = Object.keys(PROVIDER_LABELS) as AIProvider[]
@@ -11,9 +13,39 @@ const PROVIDERS = Object.keys(PROVIDER_LABELS) as AIProvider[]
 export function SettingsPage() {
   const settings = useSettingsStore()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
+  const watermarkInputRef = useRef<HTMLInputElement>(null)
   const models = AI_MODELS.filter(m => m.provider === settings.defaultProvider)
+  const defaultWatermarkUrl = useMemo(
+    () => settings.defaultWatermark ? `${BASE_URL}/media/default-watermark/${settings.defaultWatermark}` : null,
+    [settings.defaultWatermark]
+  )
 
   const save = () => toast.success('Настройки сохранены (авто-сохранение включено)')
+
+  const handleDefaultWatermarkSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    try {
+      const res = await mediaApi.uploadDefaultWatermark(file)
+      settings.setDefaultWatermark(res.filename)
+      toast.success('Глобальный watermark загружен')
+    } catch {
+      toast.error('Ошибка загрузки watermark')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  const handleDefaultWatermarkRemove = async () => {
+    if (!settings.defaultWatermark) return
+    try {
+      await mediaApi.deleteDefaultWatermark(settings.defaultWatermark)
+      settings.setDefaultWatermark('')
+      toast.success('Глобальный watermark удалён')
+    } catch {
+      toast.error('Ошибка удаления watermark')
+    }
+  }
 
   return (
     <div className="flex-1 overflow-y-auto p-8">
@@ -83,6 +115,34 @@ export function SettingsPage() {
               onChange={e => settings.setTtsVoice(e.target.value)}
               options={TTS_VOICES.map(v => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) }))}
             />
+          </section>
+
+          <section className="bg-surface-1 border border-border rounded-xl p-5 flex flex-col gap-4">
+            <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Watermark по умолчанию</h2>
+            <input
+              ref={watermarkInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleDefaultWatermarkSelected}
+            />
+            <div className="flex items-center gap-3">
+              <Button type="button" variant="secondary" icon={<ImagePlus size={16} />} onClick={() => watermarkInputRef.current?.click()}>
+                Загрузить watermark
+              </Button>
+              {settings.defaultWatermark && (
+                <Button type="button" variant="ghost" icon={<Trash2 size={16} />} onClick={handleDefaultWatermarkRemove}>
+                  Удалить
+                </Button>
+              )}
+            </div>
+            {defaultWatermarkUrl ? (
+              <div className="rounded-xl border border-border bg-surface-2 p-4">
+                <img src={defaultWatermarkUrl} alt="Default watermark" className="h-16 w-auto object-contain" />
+              </div>
+            ) : (
+              <p className="text-xs text-muted">Этот watermark будет автоматически подставляться в новые проекты, но его можно будет заменить или удалить в настройках проекта.</p>
+            )}
           </section>
         </div>
       </div>

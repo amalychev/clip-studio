@@ -26,8 +26,30 @@ export const settingsApi = {
 export const aiApi = {
   prepare: (data: { text: string; provider: string; model: string; api_key: string; project_id: string }) =>
     api.post('/ai/prepare', data).then(r => r.data),
-  generateImages: (data: { provider: string; model: string; api_key: string; project_id: string; source_text: string; creative_direction: string; count: number }) =>
+  generateImagePrompts: (data: { provider: string; model: string; api_key: string; project_id: string; source_text: string; creative_direction: string; count: number }) =>
+    api.post('/ai/generate-image-prompts', data).then(r => r.data),
+  generateImages: (data: { provider: string; model: string; api_key: string; project_id: string; source_text: string; creative_direction: string; count: number; prompts?: string[] }) =>
     api.post('/ai/generate-images', data).then(r => r.data),
+  generateSingleImage: (data: { provider: string; model: string; api_key: string; project_id: string; prompt: string; slot: number }) =>
+    api.post('/ai/generate-single-image', data, { timeout: 180000 }).then(r => r.data),
+}
+
+export const videoApi = {
+  renderPreview: (projectId: string, data: {
+    format: { id: string; width: number; height: number }
+    audio_filename: string | null
+    image_filenames: string[]
+    music_id: string | null
+    music_volume: number
+    subtitles: object[]
+    subtitle_style: object
+    speech_volume: number
+    audio_duration: number
+    enable_image_transitions: boolean
+    watermark_filename: string | null
+    lead_in?: number
+    lead_out?: number
+  }, signal?: AbortSignal) => api.post(`/video/preview/${projectId}`, data, { signal }).then(r => r.data),
 }
 
 // TTS (runs in-process via Silero — no external service needed)
@@ -58,6 +80,17 @@ export const mediaApi = {
   },
   deleteWatermark: (projectId: string, filename: string) =>
     api.delete(`/media/watermark/${projectId}/${filename}`).then(r => r.data),
+  uploadDefaultWatermark: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post('/media/default-watermark', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  deleteDefaultWatermark: (filename: string) =>
+    api.delete(`/media/default-watermark/${filename}`).then(r => r.data),
+  applyDefaultWatermark: (projectId: string) =>
+    api.post(`/media/default-watermark/apply/${projectId}`).then(r => r.data),
   listMusic: () => api.get('/media/music').then(r => r.data),
   uploadMusic: (file: File) => {
     const form = new FormData()

@@ -11,6 +11,11 @@ declare global {
       onProgress: (cb: (data: { stage: string; message: string; percent: number; log?: string }) => void) => void
       onDone: (cb: () => void) => void
       onError: (cb: (data: { message: string }) => void) => void
+      getState: () => Promise<{
+        progress: { stage: string; message: string; percent: number; log?: string }
+        done: boolean
+        error: string | null
+      }>
       retry: () => Promise<void>
     }
     electron: {

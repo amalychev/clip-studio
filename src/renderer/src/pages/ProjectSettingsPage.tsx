@@ -36,14 +36,21 @@ export function ProjectSettingsPage() {
     projectsApi.get(projectId).then(p => {
       setProjectName(p.name)
       const data = p.data || {}
-      if (data.watermarkFilename) setWatermarkFilename(data.watermarkFilename)
+      const hasProjectWatermark = !!data.watermarkFilename
+      if (hasProjectWatermark) setWatermarkFilename(data.watermarkFilename)
       if (data.ttsVoice) setTtsVoice(data.ttsVoice)
       if (data.provider) setProvider(data.provider)
       if (data.model) setModel(data.model)
       if (data.apiKeys) setApiKeys({ ...settings.apiKeys, ...data.apiKeys })
-      setIsNew(!p.data?.configured)
+      const nextIsNew = !p.data?.configured
+      setIsNew(nextIsNew)
+      if (!hasProjectWatermark && nextIsNew && settings.defaultWatermark) {
+        mediaApi.applyDefaultWatermark(projectId)
+          .then(res => setWatermarkFilename(res.filename))
+          .catch(() => {})
+      }
     }).catch(console.error)
-  }, [projectId])
+  }, [projectId, settings.defaultWatermark])
 
   const models = AI_MODELS.filter(m => m.provider === provider)
   const watermarkUrl = useMemo(

@@ -88,6 +88,9 @@ export interface WizardState {
   exportFormats: VideoFormat[]
   exportProgress: ExportProgress | null
   exportedFiles: ExportResult[]
+  previewFormatId: '9:16' | '1:1' | '4:5' | '16:9'
+  previewVideoFilename: string | null
+  previewVideoUrl: string | null
 }
 
 export interface UploadedImage {
@@ -137,8 +140,9 @@ export const AI_MODELS: AIModel[] = [
   { id: 'mistral-large-latest', name: 'Mistral Large', provider: 'mistral' },
   { id: 'mistral-medium-latest', name: 'Mistral Medium', provider: 'mistral' },
   { id: 'mistral-small-latest', name: 'Mistral Small', provider: 'mistral' },
-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'gemini' },
-  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'gemini' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'gemini' },
 ]
 
 export const DEFAULT_VIDEO_FORMATS: VideoFormat[] = [

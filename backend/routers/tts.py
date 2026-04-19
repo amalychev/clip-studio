@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from database import DATA_DIR
+from services.project_naming import get_project_slug
 
 router = APIRouter()
 
@@ -37,10 +38,11 @@ async def tts_generate(body: TTSRequest):
     except Exception as e:
         raise HTTPException(500, f"TTS synthesis failed: {e}")
 
-    filename = f"tts.{fmt}"
+    project_slug = get_project_slug(body.project_id)
+    filename = f"{project_slug}_tts.{fmt}"
     audio_dir = DATA_DIR / "projects" / body.project_id / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
-    for old in audio_dir.glob("tts.*"):
+    for old in audio_dir.glob("*_tts.*"):
         old.unlink(missing_ok=True)
     (audio_dir / filename).write_bytes(audio_bytes)
 
