@@ -26,7 +26,7 @@ function formatTime(s: number) {
 }
 
 export function Step6_Subtitles() {
-  const { rawText, audioDuration, audioFilename, subtitles, projectId,
+  const { preparedText, audioDuration, audioFilename, subtitles, projectId,
     setSubtitles, updateSubtitle, nextStep, prevStep } = useWizardStore()
   const [loading, setLoading] = useState(false)
   const [audioLoading, setAudioLoading] = useState(false)
@@ -36,7 +36,7 @@ export function Step6_Subtitles() {
     setLoading(true)
     try {
       const res = await subtitleApi.generate({
-        text: rawText,
+        text: preparedText,
         duration: audioDuration,
         project_id: projectId,
       })
@@ -74,15 +74,34 @@ export function Step6_Subtitles() {
           <HelpCircle size={16} className="text-muted" />
         </Tooltip>
         {subtitles.length > 0 && (
-          <Badge variant="success" className="ml-auto">{subtitles.length} {pluralLines(subtitles.length)}</Badge>
+          <>
+            <Badge variant="success" className="ml-auto">{subtitles.length} {pluralLines(subtitles.length)}</Badge>
+            <Button
+              size="sm"
+              className="h-6 px-2 text-xs border border-red-500/30 bg-red-500/15 text-red-200 hover:bg-red-500/25 hover:text-white"
+              onClick={() => setSubtitles([])}
+            >
+              Удалить все
+            </Button>
+          </>
         )}
       </div>
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="primary"
+            onClick={handleGenerate}
+            loading={loading}
+            disabled={audioLoading}
+            icon={<Wand2 size={16} />}
+          >
+            {subtitles.length > 0 ? 'Перегенерировать по тексту' : 'Сгенерировать по тексту'}
+          </Button>
           {audioFilename ? (
             <Tooltip content="Whisper транскрибирует TTS-аудио и даёт точные тайминги для каждого слова. При первом запуске скачает модель (~480 МБ).">
               <Button
+                variant="secondary"
                 onClick={handleGenerateFromAudio}
                 loading={audioLoading}
                 disabled={loading}
@@ -92,15 +111,6 @@ export function Step6_Subtitles() {
               </Button>
             </Tooltip>
           ) : null}
-          <Button
-            variant={audioFilename ? 'secondary' : 'primary'}
-            onClick={handleGenerate}
-            loading={loading}
-            disabled={audioLoading}
-            icon={<Wand2 size={16} />}
-          >
-            {subtitles.length > 0 ? 'Перегенерировать по тексту' : 'По тексту (примерно)'}
-          </Button>
           {audioDuration > 0 && (
             <span className="text-sm text-muted ml-auto">
               {Math.floor(audioDuration / 60)}:{String(Math.floor(audioDuration % 60)).padStart(2,'0')}
@@ -150,7 +160,9 @@ export function Step6_Subtitles() {
       <div className="flex justify-between">
         <Button variant="ghost" onClick={prevStep} icon={<ArrowLeft size={16} />}>Назад</Button>
         <div className="flex items-center gap-3">
-          <Button variant="ghost" onClick={nextStep}>Пропустить</Button>
+          {subtitles.length === 0 && (
+            <Button variant="ghost" onClick={nextStep}>Пропустить</Button>
+          )}
           <Button onClick={nextStep} disabled={subtitles.length === 0} icon={<ArrowRight size={16} />}>
             К просмотру
           </Button>

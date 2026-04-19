@@ -17,6 +17,8 @@ const TRACK_H = 34
 const RULER_H = 22
 const LEAD_IN = 2
 const LEAD_OUT = 2
+const SUBTITLE_ADVANCE = 0
+const TIMELINE_LABEL_W = 96
 const DT_IMG = 'cs-image-id'   // dataTransfer key for images
 
 const FORMATS = [
@@ -143,13 +145,15 @@ function AssetsPanel({ images, audioUrl, audioDuration, selectedMusicId, subtitl
 function StyleEditor({
   style,
   onChange,
+  disabled = false,
 }: {
   style: SubtitleStyle
   onChange: (p: Partial<SubtitleStyle>) => void
+  disabled?: boolean
 }) {
   const [draft, setDraft] = useState({
     fontSize: style.fontSize,
-    lineSpacing: style.lineSpacing ?? 135,
+    lineSpacing: style.lineSpacing ?? 130,
     borderRadius: style.borderRadius ?? 0,
     bgOpacity: style.bgOpacity,
     positionMargin: style.positionMargin,
@@ -161,8 +165,8 @@ function StyleEditor({
   useEffect(() => {
     setDraft({
       fontSize: style.fontSize,
-      lineSpacing: style.lineSpacing ?? 150,
-      borderRadius: style.borderRadius ?? 30,
+      lineSpacing: style.lineSpacing ?? 130,
+      borderRadius: style.borderRadius ?? 0,
       bgOpacity: style.bgOpacity,
       positionMargin: style.positionMargin,
       textColor: style.textColor,
@@ -172,7 +176,13 @@ function StyleEditor({
   }, [style.fontSize, style.lineSpacing, style.borderRadius, style.bgOpacity, style.positionMargin, style.textColor, style.bgColor, style.activeWordColor])
 
   return (
-    <div className="bg-surface-1 border border-border rounded-xl p-3 h-full overflow-y-auto flex flex-col gap-3">
+    <div
+      className={clsx(
+        'bg-surface-1 border border-border rounded-xl p-3 h-full overflow-y-auto flex flex-col gap-3 transition-opacity',
+        disabled && 'opacity-45 pointer-events-none select-none'
+      )}
+      aria-disabled={disabled}
+    >
       <p className="text-xs font-semibold text-muted uppercase tracking-wider shrink-0">Стиль субтитров</p>
 
       <div className="grid grid-cols-2 gap-3">
@@ -350,6 +360,8 @@ function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, edgeBlurPro
   const margin = `${style.positionMargin ?? 5}%`
   const activeWordIndex = style.highlightActiveWord ? getActiveSubtitleWordIndex(subtitle, subtitleTime) : -1
   const subtitleTokens = subtitle ? splitSubtitleTokens(subtitle.text) : []
+  const fontSizePx = box.h * style.fontSize / 100
+  const lineHeightPx = fontSizePx * ((style.lineSpacing ?? 130) / 100)
   const currentFrameBlur = Math.max(
     transitionsEnabled && nextImageUrl ? transitionProgress * 10 : 0,
     edgeBlurProgress * 12,
@@ -400,21 +412,26 @@ function PreviewCanvas({ imageUrl, nextImageUrl, transitionProgress, edgeBlurPro
             <img
               src={watermarkUrl}
               alt="Watermark"
-              className="absolute z-10 top-4 right-4 object-contain pointer-events-none"
-              style={{ width: Math.min(box.w * 0.14, 120) }}
+              className="absolute z-10 object-contain pointer-events-none"
+              style={{
+                width: box.w * 0.12,
+                top: box.w * 0.03,
+                right: box.w * 0.03,
+              }}
             />
           )}
           {subtitle && (
             <div className="absolute left-0 right-0 px-4 flex justify-center z-20"
               style={subtitlePos as React.CSSProperties}>
               <span style={{
-                fontSize: box.h * style.fontSize / 100,
+                fontSize: fontSizePx,
+                fontFamily: 'Arial, sans-serif',
                 color: style.textColor,
                 fontWeight: style.bold ? 'bold' : 'normal',
                 background: `rgba(${hexToRgb(style.bgColor)},${style.bgOpacity / 100})`,
-                padding: `${box.h * style.fontSize / 100 * 0.22}px ${box.h * style.fontSize / 100 * 0.55}px`,
-                borderRadius: box.h * style.fontSize / 100 * 0.3,
-                lineHeight: `${style.lineSpacing ?? 160}%`,
+                padding: `${fontSizePx * 0.22}px ${fontSizePx * 0.55}px`,
+                borderRadius: fontSizePx * 0.3,
+                lineHeight: `${lineHeightPx}px`,
                 textAlign: 'center',
                 display: 'inline-block',
                 maxWidth: '90%',
@@ -449,22 +466,38 @@ const TRACK_COLORS = [
 
 function Timeline({
   duration, ttsStart, ttsDuration,
-  images, imageDuration, subtitles, hasMusic,
+  images, imageDuration,
+  speechAvailable, speechOnTimeline,
+  musicAvailable, musicOnTimeline,
+  subtitles, subtitlesAvailable, subtitlesOnTimeline,
   speechVolume, musicVolume, currentTime,
-  onSeek, onReorder, onRemoveImage, onAddToTimeline, onRemoveMusic, onRemoveSubtitles,
+  onSeek, onReorder, onRemoveImage, onAddToTimeline,
+  onRemoveSpeech, onAddSpeech,
+  onRemoveMusic, onAddMusic,
+  onRemoveSubtitles, onAddSubtitles,
   onSpeechVolume, onMusicVolume,
 }: {
   duration: number; ttsStart: number; ttsDuration: number
   images: UploadedImage[]
   imageDuration: number
+  speechAvailable: boolean
+  speechOnTimeline: boolean
+  musicAvailable: boolean
+  musicOnTimeline: boolean
   subtitles: { index: number; startTime: number; endTime: number; text: string }[]
-  hasMusic: boolean; speechVolume: number; musicVolume: number; currentTime: number
+  subtitlesAvailable: boolean
+  subtitlesOnTimeline: boolean
+  speechVolume: number; musicVolume: number; currentTime: number
   onSeek: (t: number) => void
   onReorder: (from: number, to: number) => void
   onRemoveImage: (id: string) => void
   onAddToTimeline: (id: string, atIdx: number) => void
+  onRemoveSpeech: () => void
+  onAddSpeech: () => void
   onRemoveMusic: () => void
+  onAddMusic: () => void
   onRemoveSubtitles: () => void
+  onAddSubtitles: () => void
   onSpeechVolume: (v: number) => void
   onMusicVolume: (v: number) => void
 }) {
@@ -488,7 +521,7 @@ function Timeline({
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return 0
     const scrollLeft = containerRef.current?.scrollLeft ?? 0
-    const x = clientX - rect.left + scrollLeft - 64
+    const x = clientX - rect.left + scrollLeft - TIMELINE_LABEL_W
     return Math.max(0, Math.min(x / PX_PER_SEC, duration))
   }, [duration])
 
@@ -525,9 +558,10 @@ function Timeline({
   }
 
   const trackLabels = [
-    'Видео', 'Речь',
-    ...(hasMusic ? ['Музыка'] : []),
-    ...(subtitles.length > 0 ? ['Субт.'] : []),
+    { key: 'video', label: 'Видео' },
+    ...(speechAvailable ? [{ key: 'tts', label: 'Речь' }] : []),
+    ...(musicAvailable ? [{ key: 'music', label: 'Музыка' }] : []),
+    ...(subtitlesAvailable ? [{ key: 'subtitles', label: 'Субт.' }] : []),
   ]
 
   return (
@@ -547,7 +581,7 @@ function Timeline({
             className="w-20 accent-accent h-1 cursor-pointer" />
           <span className="text-xs text-muted w-7">{draftSpeechVolume}%</span>
         </div>
-        {hasMusic && (
+        {musicAvailable && (
           <div className="flex items-center gap-2">
             <Volume2 size={12} className="text-muted shrink-0" />
             <span className="text-xs text-muted shrink-0">Музыка</span>
@@ -565,21 +599,54 @@ function Timeline({
 
       {/* Scrollable tracks */}
       <div ref={containerRef} className="overflow-x-auto overflow-y-hidden select-none">
-        <div style={{ width: totalWidth + 64, minWidth: '100%' }} className="relative">
+        <div style={{ width: totalWidth + TIMELINE_LABEL_W, minWidth: '100%' }} className="relative">
 
           {/* Labels */}
-          <div className="absolute left-0 top-0 bottom-0 w-16 bg-surface-1 z-10 border-r border-border flex flex-col">
+          <div
+            className="absolute left-0 top-0 bottom-0 bg-surface-1 z-10 border-r border-border flex flex-col"
+            style={{ width: TIMELINE_LABEL_W }}
+          >
             <div style={{ height: RULER_H }} />
-            {trackLabels.map((label, i, arr) => (
-              <div key={label} style={{ height: TRACK_H }}
-                className={clsx('flex items-center px-2', i < arr.length - 1 && 'border-b border-border/50')}>
-                <span className="text-xs text-muted truncate">{label}</span>
+            {trackLabels.map((track, i, arr) => (
+              <div key={track.key} style={{ height: TRACK_H }}
+                className={clsx('flex items-center gap-2 px-3', i < arr.length - 1 && 'border-b border-border/50')}>
+                <span className="text-xs text-muted truncate">{track.label}</span>
+                {track.key === 'subtitles' && subtitlesOnTimeline && subtitles.length > 0 && (
+                  <button
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); onRemoveSubtitles() }}
+                    className="ml-auto w-4 h-4 rounded-full bg-red-500/85 hover:bg-red-500 flex items-center justify-center shrink-0"
+                    title="Убрать субтитры с таймлайна"
+                  >
+                    <X size={8} className="text-white" />
+                  </button>
+                )}
+                {track.key === 'tts' && speechOnTimeline && (
+                  <button
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); onRemoveSpeech() }}
+                    className="ml-auto w-4 h-4 rounded-full bg-red-500/85 hover:bg-red-500 flex items-center justify-center shrink-0"
+                    title="Убрать речь с таймлайна"
+                  >
+                    <X size={8} className="text-white" />
+                  </button>
+                )}
+                {track.key === 'music' && musicOnTimeline && (
+                  <button
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); onRemoveMusic() }}
+                    className="ml-auto w-4 h-4 rounded-full bg-red-500/85 hover:bg-red-500 flex items-center justify-center shrink-0"
+                    title="Убрать музыку с таймлайна"
+                  >
+                    <X size={8} className="text-white" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
 
           {/* Content */}
-          <div className="ml-16" style={{ width: totalWidth }}>
+          <div style={{ marginLeft: TIMELINE_LABEL_W, width: totalWidth }}>
             {/* Ruler */}
             <div style={{ height: RULER_H }}
               className="relative bg-surface-2 border-b border-border cursor-col-resize"
@@ -640,10 +707,24 @@ function Timeline({
             </div>
 
             {/* TTS track — starts at ttsStart, spans ttsDuration */}
-            <div style={{ height: TRACK_H }}
+            {speechAvailable && (
+            <div
+              style={{ height: TRACK_H }}
               className="relative bg-surface-2/40 border-b border-border/50"
-              onMouseDown={handleMouseDown}>
-              {ttsDuration > 0 && (
+              onMouseDown={handleMouseDown}
+              onDragOver={e => {
+                if (e.dataTransfer.types.includes('cs-type')) e.preventDefault()
+              }}
+              onDrop={e => {
+                const type = e.dataTransfer.getData('cs-type')
+                if (type === 'tts') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onAddSpeech()
+                }
+              }}
+            >
+              {speechOnTimeline && ttsDuration > 0 ? (
                 <div style={{
                   position: 'absolute',
                   left: ttsStart * PX_PER_SEC + 1,
@@ -653,38 +734,73 @@ function Timeline({
                   className="rounded bg-accent/20 border border-accent/40 flex items-center px-2 pointer-events-none">
                   <span className="text-xs text-accent/70 truncate">TTS · {fmtTime(ttsDuration)}</span>
                 </div>
+              ) : (
+                <div className="absolute inset-x-1 top-1.5 bottom-1.5 rounded border border-dashed border-accent/35 bg-accent/5 flex items-center justify-center px-3">
+                  <span className="text-[11px] text-accent/70 text-center">
+                    Перетащите сюда речь из ассетов
+                  </span>
+                </div>
               )}
             </div>
+            )}
 
             {/* Music track — full duration with delete */}
-            {hasMusic && (
-              <div style={{ height: TRACK_H }}
+            {musicAvailable && (
+              <div
+                style={{ height: TRACK_H }}
                 className="relative bg-surface-2/40 border-b border-border/50"
-                onMouseDown={handleMouseDown}>
+                onMouseDown={handleMouseDown}
+                onDragOver={e => {
+                  if (e.dataTransfer.types.includes('cs-type')) e.preventDefault()
+                }}
+                onDrop={e => {
+                  const type = e.dataTransfer.getData('cs-type')
+                  if (type === 'music') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onAddMusic()
+                  }
+                }}
+              >
+                {musicOnTimeline ? (
                 <div style={{
                   position: 'absolute',
                   left: 1,
                   width: Math.max(duration * PX_PER_SEC - 2, 0),
                   top: 6, bottom: 6,
                 }}
-                  className="group rounded bg-emerald-500/20 border border-emerald-500/40 flex items-center px-2 pointer-events-none">
+                  className="rounded bg-emerald-500/20 border border-emerald-500/40 flex items-center px-2 pointer-events-none">
                   <span className="text-xs text-emerald-400/70 truncate flex-1">Музыка · {fmtTime(duration)}</span>
-                  <button
-                    onMouseDown={e => e.stopPropagation()}
-                    onClick={e => { e.stopPropagation(); onRemoveMusic() }}
-                    className="w-3.5 h-3.5 rounded-full bg-red-500/80 hidden group-hover:flex items-center justify-center pointer-events-auto shrink-0 ml-1"
-                  >
-                    <X size={7} className="text-white" />
-                  </button>
                 </div>
+                ) : (
+                  <div className="absolute inset-x-1 top-1.5 bottom-1.5 rounded border border-dashed border-emerald-500/35 bg-emerald-500/5 flex items-center justify-center px-3">
+                    <span className="text-[11px] text-emerald-300/70 text-center">
+                      Перетащите сюда музыку из ассетов
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Subtitle track — each block offset by LEAD_IN, with clear-all button */}
-            {subtitles.length > 0 && (
-              <div style={{ height: TRACK_H }} className="relative bg-surface-2/40"
-                onMouseDown={handleMouseDown}>
-                {subtitles.map(sub => (
+            {subtitlesAvailable && (
+              <div
+                style={{ height: TRACK_H }}
+                className="relative bg-surface-2/40"
+                onMouseDown={handleMouseDown}
+                onDragOver={e => {
+                  if (e.dataTransfer.types.includes('cs-type')) e.preventDefault()
+                }}
+                onDrop={e => {
+                  const type = e.dataTransfer.getData('cs-type')
+                  if (type === 'subtitles') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onAddSubtitles()
+                  }
+                }}
+              >
+                {subtitlesOnTimeline && subtitles.length > 0 ? subtitles.map(sub => (
                   <div key={sub.index} style={{
                     position: 'absolute',
                     left: sub.startTime * PX_PER_SEC,
@@ -693,24 +809,21 @@ function Timeline({
                   }}
                     className="group rounded bg-amber-500/20 border border-amber-500/40 flex items-center px-1 overflow-hidden pointer-events-none">
                     <span className="text-amber-300/70 truncate flex-1" style={{ fontSize: 9 }}>{sub.text}</span>
-                    {sub.index === subtitles[subtitles.length - 1]?.index && (
-                      <button
-                        onMouseDown={e => e.stopPropagation()}
-                        onClick={e => { e.stopPropagation(); onRemoveSubtitles() }}
-                        className="w-3 h-3 rounded-full bg-red-500/80 hidden group-hover:flex items-center justify-center pointer-events-auto shrink-0 ml-0.5"
-                      >
-                        <X size={6} className="text-white" />
-                      </button>
-                    )}
                   </div>
-                ))}
+                )) : (
+                  <div className="absolute inset-x-1 top-1.5 bottom-1.5 rounded border border-dashed border-amber-500/35 bg-amber-500/5 flex items-center justify-center px-3">
+                    <span className="text-[11px] text-amber-200/70 text-center">
+                      Перетащите сюда субтитры из ассетов
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
           {/* Playhead */}
           <div className="absolute top-0 bottom-0 z-20 pointer-events-none"
-            style={{ left: 64 + currentTime * PX_PER_SEC }}>
+            style={{ left: TIMELINE_LABEL_W + currentTime * PX_PER_SEC }}>
             <div className="w-px h-full bg-red-500/80" />
             <div className="absolute top-0 -left-1.5 w-3 h-3 bg-red-500 rounded-full" />
           </div>
@@ -726,10 +839,13 @@ export function Step7_Preview() {
   const {
     projectId, images, audioFilename, audioDuration, selectedMusicId, musicVolume, speechVolume,
     subtitles, subtitleStyle, setSubtitleStyle, setMusicVolume, setSpeechVolume,
-    setMusic, setSubtitles, nextStep, prevStep,
+    nextStep, prevStep,
     enableImageTransitions, setEnableImageTransitions,
     watermarkFilename, previewFormatId, setPreviewFormatId, previewVideoUrl, setPreviewVideo,
     timelineImageIds: storeTimelineIds, setTimelineImageIds: syncTimelineIds,
+    timelineHasSpeech, setTimelineHasSpeech,
+    timelineHasMusic, setTimelineHasMusic,
+    timelineHasSubtitles, setTimelineHasSubtitles,
   } = useWizardStore()
 
   const [currentTime, setCurrentTime] = useState(0)
@@ -779,10 +895,10 @@ export function Step7_Preview() {
   const subtitlesKey = JSON.stringify(subtitles)
   const subtitleStyleKey = JSON.stringify(subtitleStyle)
 
-  const timelineSubtitles = subtitles.map(s => ({
+  const timelineSubtitles = (timelineHasSubtitles ? subtitles : []).map(s => ({
     ...s,
-    startTime: s.startTime + LEAD_IN,
-    endTime: s.endTime + LEAD_IN,
+    startTime: Math.max(0, s.startTime + LEAD_IN - SUBTITLE_ADVANCE),
+    endTime: Math.max(0.01, s.endTime + LEAD_IN - SUBTITLE_ADVANCE),
   }))
 
   useEffect(() => {
@@ -927,13 +1043,13 @@ export function Step7_Preview() {
       format: { id: selectedFormat.id, width: selectedFormat.width, height: selectedFormat.height },
       audio_filename: audioFilename,
       image_filenames: timelineImageFilenames,
-      music_id: selectedMusicId,
+      music_id: timelineHasMusic ? selectedMusicId : null,
       music_volume: musicVolume / 100,
-      subtitles,
+      subtitles: timelineHasSubtitles ? subtitles : [],
       subtitle_style: subtitleStyle,
-      speech_volume: speechVolume / 100,
+      speech_volume: timelineHasSpeech ? speechVolume / 100 : 0,
       audio_duration: audioDuration,
-      enable_image_transitions: enableImageTransitions,
+      enable_image_transitions: false,
       watermark_filename: watermarkFilename,
       lead_in: LEAD_IN,
       lead_out: LEAD_OUT,
@@ -972,9 +1088,11 @@ export function Step7_Preview() {
     selectedMusicId,
     musicVolume,
     subtitlesKey,
+    timelineHasSpeech,
+    timelineHasMusic,
+    timelineHasSubtitles,
     subtitleStyleKey,
     speechVolume,
-    enableImageTransitions,
     watermarkFilename,
     selectedFormat.id,
     selectedFormat.width,
@@ -1030,6 +1148,7 @@ export function Step7_Preview() {
             <StyleEditor
               style={subtitleStyle}
               onChange={setSubtitleStyle}
+              disabled={!timelineHasSubtitles}
             />
           </div>
         </div>
@@ -1075,8 +1194,13 @@ export function Step7_Preview() {
             ttsDuration={audioDuration || 0}
             images={timelineImages}
             imageDuration={imageDuration}
+            speechAvailable={!!audioFilename}
+            speechOnTimeline={timelineHasSpeech}
+            musicAvailable={!!selectedMusicId}
+            musicOnTimeline={timelineHasMusic}
             subtitles={timelineSubtitles}
-            hasMusic={!!selectedMusicId}
+            subtitlesAvailable={subtitles.length > 0}
+            subtitlesOnTimeline={timelineHasSubtitles}
             speechVolume={speechVolume}
             musicVolume={musicVolume}
             currentTime={currentTime}
@@ -1084,8 +1208,12 @@ export function Step7_Preview() {
             onReorder={handleReorder}
             onRemoveImage={id => setTimelineImageIds(prev => prev.filter(x => x !== id))}
             onAddToTimeline={handleAddToTimeline}
-            onRemoveMusic={() => setMusic(null)}
-            onRemoveSubtitles={() => setSubtitles([])}
+            onRemoveSpeech={() => setTimelineHasSpeech(false)}
+            onAddSpeech={() => setTimelineHasSpeech(true)}
+            onRemoveMusic={() => setTimelineHasMusic(false)}
+            onAddMusic={() => setTimelineHasMusic(true)}
+            onRemoveSubtitles={() => setTimelineHasSubtitles(false)}
+            onAddSubtitles={() => setTimelineHasSubtitles(true)}
             onSpeechVolume={setSpeechVolume}
             onMusicVolume={setMusicVolume}
           />

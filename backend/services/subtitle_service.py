@@ -6,6 +6,7 @@ from services.project_naming import get_project_slug
 
 WORD_RE = re.compile(r'[^\s.,!?;:()"«»]+', re.UNICODE)
 SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?…])(?:["»)]*)\s+|\n+')
+SUBTITLE_TIME_SHIFT = 0.0
 
 
 def _split_long_sentence(sentence: str, max_chars: int) -> list[str]:
@@ -157,6 +158,10 @@ def _format_ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+def _shift_subtitle_time(seconds: float, time_offset: float) -> float:
+    return max(0.0, seconds + time_offset + SUBTITLE_TIME_SHIFT)
+
+
 def _hex_to_ass(hex_color: str, opacity: int = 100) -> str:
     """Convert #rrggbb + opacity 0-100 → ASS &HAABBGGRR (0=opaque, 255=transparent)."""
     h = hex_color.lstrip("#")
@@ -287,8 +292,10 @@ def save_subtitles_ass(
 
     events = []
     for sub in subtitles:
-        start = _format_ass_time(sub["startTime"] + time_offset)
-        end = _format_ass_time(sub["endTime"] + time_offset)
+        start_seconds = _shift_subtitle_time(float(sub["startTime"]), time_offset)
+        end_seconds = max(start_seconds + 0.01, _shift_subtitle_time(float(sub["endTime"]), time_offset))
+        start = _format_ass_time(start_seconds)
+        end = _format_ass_time(end_seconds)
         sub_text = str(sub["text"])
 
         lines = textwrap.wrap(sub_text.strip(), width=chars_per_line,
@@ -327,8 +334,10 @@ def save_subtitles_ass(
 
             aw_layer = 2 if rounded else 1
             for word_index, word in enumerate(words):
-                word_start = _format_ass_time(float(word["startTime"]) + time_offset)
-                word_end = _format_ass_time(float(word["endTime"]) + time_offset)
+                word_start_seconds = _shift_subtitle_time(float(word["startTime"]), time_offset)
+                word_end_seconds = max(word_start_seconds + 0.01, _shift_subtitle_time(float(word["endTime"]), time_offset))
+                word_start = _format_ass_time(word_start_seconds)
+                word_end = _format_ass_time(word_end_seconds)
 
                 li = 0
                 for k in range(1, len(word_offsets)):
@@ -357,8 +366,8 @@ def save_subtitles_srt(subtitles: list[dict], project_id: str, time_offset: floa
     lines = []
     for sub in subtitles:
         lines.append(str(sub["index"]))
-        start = sub["startTime"] + time_offset
-        end = sub["endTime"] + time_offset
+        start = _shift_subtitle_time(float(sub["startTime"]), time_offset)
+        end = max(start + 0.01, _shift_subtitle_time(float(sub["endTime"]), time_offset))
         lines.append(f"{_format_srt_time(start)} --> {_format_srt_time(end)}")
         lines.append(sub["text"])
         lines.append("")

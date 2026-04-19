@@ -16,6 +16,7 @@ export function Step7_Export() {
     projectId, exportFormats, exportProgress, exportedFiles,
     toggleFormat, setExportProgress, setExportedFiles, prevStep,
     audioFilename, images, selectedMusicId, musicVolume, subtitles,
+    timelineHasSpeech, timelineHasMusic, timelineHasSubtitles,
     subtitleStyle, speechVolume, audioDuration, timelineImageIds, enableImageTransitions, watermarkFilename,
   } = useWizardStore()
   const [generating, setGenerating] = useState(false)
@@ -33,11 +34,11 @@ export function Step7_Export() {
       image_filenames: (timelineImageIds.length
         ? timelineImageIds.map(id => images.find(i => i.id === id)?.filename).filter(Boolean)
         : images.map(i => i.filename)) as string[],
-      music_id: selectedMusicId,
+      music_id: timelineHasMusic ? selectedMusicId : null,
       music_volume: musicVolume / 100,
-      subtitles: subtitles,
+      subtitles: timelineHasSubtitles ? subtitles : [],
       subtitle_style: subtitleStyle,
-      speech_volume: speechVolume / 100,
+      speech_volume: timelineHasSpeech ? speechVolume / 100 : 0,
       audio_duration: audioDuration,
       enable_image_transitions: enableImageTransitions,
       watermark_filename: watermarkFilename,

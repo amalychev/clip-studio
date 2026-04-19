@@ -50,7 +50,7 @@ export interface SubtitleStyle {
 
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   fontSize: 3,
-  lineSpacing: 135,
+  lineSpacing: 130,
   borderRadius: 0,
   textColor: '#ffffff',
   bgColor: '#2563eb',
@@ -78,6 +78,9 @@ export interface WizardState {
 
   images: UploadedImage[]
   timelineImageIds: string[]
+  timelineHasSpeech: boolean
+  timelineHasMusic: boolean
+  timelineHasSubtitles: boolean
 
   selectedMusicId: string | null
   musicVolume: number

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import AsyncGenerator
 import mutagen
@@ -9,6 +10,27 @@ from services.project_naming import get_project_slug
 
 # ffmpeg binary — injected by Electron via env var, falls back to system PATH
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
+
+
+def get_ffmpeg_bin() -> str:
+    candidate = os.environ.get("FFMPEG_BIN") or FFMPEG_BIN
+    if candidate:
+        expanded = os.path.expanduser(candidate)
+        if os.path.isfile(expanded) and os.access(expanded, os.X_OK):
+            return expanded
+        resolved = shutil.which(expanded)
+        if resolved:
+            return resolved
+
+    repo_candidate = Path(__file__).resolve().parents[2] / "node_modules" / "ffmpeg-static" / "ffmpeg"
+    if repo_candidate.is_file() and os.access(repo_candidate, os.X_OK):
+        return str(repo_candidate)
+
+    resolved = shutil.which("ffmpeg")
+    if resolved:
+        return resolved
+
+    return candidate or "ffmpeg"
 
 
 def _get_audio_duration(audio_path: str) -> float:
@@ -68,7 +90,8 @@ def _build_ffmpeg_cmd(
         if transition_duration < 0.12:
             transition_duration = 0.0
 
-    cmd = [FFMPEG_BIN, "-y", "-loglevel", "error"]
+    ffmpeg_bin = get_ffmpeg_bin()
+    cmd = [ffmpeg_bin, "-y", "-loglevel", "error"]
     for idx, img in enumerate(image_paths):
         loop_duration = image_duration if idx == 0 or transition_duration == 0 else image_duration + transition_duration
         cmd += ["-loop", "1", "-t", f"{loop_duration:.3f}", "-i", img]
@@ -102,9 +125,9 @@ def _build_ffmpeg_cmd(
         cmd += ["-i", watermark_path]
 
     filter_parts: list[str] = []
-    fps = 18 if preview_mode else 25
+    fps = 10 if preview_mode else 25
     base_video_filter = (
-        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"scale={width}:{height}:flags={'fast_bilinear' if preview_mode else 'bicubic'}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},fps={fps},setsar=1,format=yuv420p"
     )
     for idx, _ in enumerate(image_paths):
@@ -160,10 +183,11 @@ def _build_ffmpeg_cmd(
         current_video = "vsub"
 
     if watermark_path and watermark_input_idx is not None:
-        wm_width = max(int(width * 0.12), 72)
+        wm_width = max(int(width * 0.12), 1)
+        wm_margin = max(int(width * 0.03), 1)
         filter_parts.append(f"[{watermark_input_idx}:v]scale={wm_width}:-1[wm]")
         filter_parts.append(
-            f"[{current_video}][wm]overlay=x=W-w-20:y=20:format=auto[vwm]"
+            f"[{current_video}][wm]overlay=x=W-w-{wm_margin}:y={wm_margin}:format=auto[vwm]"
         )
         current_video = "vwm"
 
@@ -173,11 +197,13 @@ def _build_ffmpeg_cmd(
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-tune", "fastdecode",
-            "-crf", "31",
-            "-g", "36",
+            "-crf", "40",
+            "-g", "20",
             "-pix_fmt", "yuv420p",
             "-map", f"[{current_video}]", "-map", "[aout]",
-            "-c:a", "aac", "-b:a", "96k",
+            "-c:a", "aac", "-b:a", "48k",
+            "-ac", "1",
+            "-ar", "22050",
             "-t", f"{total_duration:.3f}",
             "-movflags", "+faststart",
             output_path,
@@ -270,7 +296,7 @@ async def generate_video_stream(
         except FileNotFoundError:
             yield _progress(
                 "error", 0,
-                f"ffmpeg не найден по пути: {FFMPEG_BIN}",
+                f"ffmpeg не найден по пути: {get_ffmpeg_bin()}",
                 done=True,
                 error="ffmpeg not found",
             )

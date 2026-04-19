@@ -19,12 +19,16 @@ interface WizardActions {
   reorderImages: (imgs: UploadedImage[]) => void
   removeImage: (id: string) => void
   setTimelineImageIds: (ids: string[]) => void
+  setTimelineHasSpeech: (enabled: boolean) => void
+  setTimelineHasMusic: (enabled: boolean) => void
+  setTimelineHasSubtitles: (enabled: boolean) => void
   setMusic: (id: string | null) => void
   setMusicVolume: (v: number) => void
   setEnableImageTransitions: (enabled: boolean) => void
   setWatermark: (filename: string | null, url: string | null) => void
   setSubtitles: (subs: SubtitleEntry[]) => void
   updateSubtitle: (index: number, text: string) => void
+  removeSubtitle: (index: number) => void
   setSubtitleStyle: (style: Partial<SubtitleStyle>) => void
   setSpeechVolume: (v: number) => void
   setExportFormats: (formats: VideoFormat[]) => void
@@ -49,6 +53,9 @@ const initialState: WizardState = {
   audioDuration: 0,
   images: [],
   timelineImageIds: [],
+  timelineHasSpeech: true,
+  timelineHasMusic: true,
+  timelineHasSubtitles: true,
   selectedMusicId: null,
   musicVolume: 30,
   enableImageTransitions: true,
@@ -92,6 +99,9 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
   reorderImages: (imgs) => set({ images: imgs }),
   removeImage: (id) => set((s) => ({ images: s.images.filter(i => i.id !== id) })),
   setTimelineImageIds: (ids) => set({ timelineImageIds: ids }),
+  setTimelineHasSpeech: (enabled) => set({ timelineHasSpeech: enabled }),
+  setTimelineHasMusic: (enabled) => set({ timelineHasMusic: enabled }),
+  setTimelineHasSubtitles: (enabled) => set({ timelineHasSubtitles: enabled }),
   setMusic: (id) => set({ selectedMusicId: id }),
   setMusicVolume: (v) => set({ musicVolume: v }),
   setEnableImageTransitions: (enabled) => set({ enableImageTransitions: enabled }),
@@ -100,6 +110,10 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
   updateSubtitle: (index, text) =>
     set((s) => ({
       subtitles: s.subtitles.map(sub => sub.index === index ? normalizeSubtitleEntry({ ...sub, text }) : sub),
+    })),
+  removeSubtitle: (index) =>
+    set((s) => ({
+      subtitles: s.subtitles.filter(sub => sub.index !== index),
     })),
   setSubtitleStyle: (style) => set((s) => ({ subtitleStyle: { ...s.subtitleStyle, ...style } })),
   setSpeechVolume: (v) => set({ speechVolume: v }),
@@ -133,6 +147,9 @@ export const useWizardStore = create<WizardState & WizardActions>((set) => ({
       const stored = data.timelineImageIds as string[] | undefined
       return stored?.length ? stored.filter(id => imgs.includes(id)) : imgs
     })(),
+    timelineHasSpeech: (data.timelineHasSpeech as boolean) ?? true,
+    timelineHasMusic: (data.timelineHasMusic as boolean) ?? true,
+    timelineHasSubtitles: (data.timelineHasSubtitles as boolean) ?? true,
     selectedMusicId: (data.selectedMusicId as string) ?? null,
     musicVolume: (data.musicVolume as number) ?? 30,
     enableImageTransitions: (data.enableImageTransitions as boolean) ?? true,
@@ -177,6 +194,9 @@ useWizardStore.subscribe((state) => {
         audioDuration: s.audioDuration,
         images: s.images.map(({ id, filename, order }) => ({ id, filename, order })),
         timelineImageIds: s.timelineImageIds,
+        timelineHasSpeech: s.timelineHasSpeech,
+        timelineHasMusic: s.timelineHasMusic,
+        timelineHasSubtitles: s.timelineHasSubtitles,
         selectedMusicId: s.selectedMusicId,
         musicVolume: s.musicVolume,
         enableImageTransitions: s.enableImageTransitions,

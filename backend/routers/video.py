@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from database import DATA_DIR
-from services.video_service import FFMPEG_BIN, generate_video_stream, render_video_file
+from services.video_service import generate_video_stream, render_video_file, get_ffmpeg_bin
 from services.project_naming import get_project_slug
 
 ASSETS_MUSIC_DIR = Path(__file__).parent.parent / "assets" / "music"
@@ -14,7 +14,7 @@ router = APIRouter()
 
 def _preview_dimensions(width: int, height: int) -> tuple[int, int]:
     # Proxy preview: enough for UI fidelity, much faster than full export size.
-    max_long_edge = 960
+    max_long_edge = 480
     long_edge = max(width, height)
     if long_edge <= max_long_edge:
         return width, height
@@ -183,8 +183,8 @@ async def render_preview(project_id: str, body: PreviewRequest):
     output_dir.mkdir(exist_ok=True)
     safe_format_id = body.format.id.replace(":", "x")
     project_slug = get_project_slug(project_id)
-    preview_filename = f"{project_slug}_preview_{safe_format_id}.mp4"
-    for old in output_dir.glob(f"*_preview_{safe_format_id}.mp4"):
+    preview_filename = f"{project_slug}_preview.mp4"
+    for old in output_dir.glob("*_preview*.mp4"):
         old.unlink(missing_ok=True)
     output_path = output_dir / preview_filename
 
@@ -207,12 +207,12 @@ async def render_preview(project_id: str, body: PreviewRequest):
             lead_in=body.lead_in,
             lead_out=body.lead_out,
             audio_duration=body.audio_duration,
-            enable_image_transitions=body.enable_image_transitions,
+            enable_image_transitions=False,
             fmt_id=f"preview_{safe_format_id}",
             preview_mode=True,
         )
     except FileNotFoundError:
-        raise HTTPException(500, f"ffmpeg не найден по пути: {FFMPEG_BIN}")
+        raise HTTPException(500, f"ffmpeg не найден по пути: {get_ffmpeg_bin()}")
     except Exception as exc:
         raise HTTPException(500, str(exc))
 
