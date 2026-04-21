@@ -29,7 +29,7 @@ A desktop application for creating short-form social media videos from text cont
 │  │   React UI (Vite / renderer)     │   │
 │  │   Zustand state · Tailwind CSS   │   │
 │  └────────────────┬─────────────────┘   │
-│                   │ HTTP (localhost)     │
+│                   │ HTTP (localhost)    │
 │  ┌────────────────▼─────────────────┐   │
 │  │   FastAPI Backend (port 8765)    │   │
 │  │   SQLite · Silero TTS · FFmpeg   │   │
@@ -181,23 +181,23 @@ Raw script
   │
   ▼ (Step 2) AI provider rewrites / cleans the text
   │
-  ▼ (Step 3) Silero TTS → WAV/MP3 audio file  ──────────────┐
-  │                                                           │
+  ▼ (Step 3) Silero TTS → WAV/MP3 audio file  ───────────────┐
+  │                                                          │
   ▼ (Step 4) Images uploaded (JPEG/PNG/WEBP)                 │
-  │                                                           │
+  │                                                          │
   ▼ (Step 5) Background music selected                       │
-  │                                                           │
+  │                                                          │
   ▼ (Step 6) Subtitles auto-generated (text + TTS timing)    │
-  │                                                           │
+  │                                                          │
   ▼ (Step 7) Timeline preview                                │
   │   • LEAD_IN = 2 s of silence before TTS starts           │
   │   • LEAD_OUT = 2 s after TTS ends                        │
   │   • Total duration = LEAD_IN + TTS duration + LEAD_OUT   │
   │   • Images cover the full duration equally               │
-  │                                                           │
+  │                                                          │
   ▼ (Step 8) FFmpeg render (per selected format)             │
-      ffmpeg concat slideshow                                 │
-      + adelay(2000ms) on TTS audio ◄───────────────────────┘
+      ffmpeg concat slideshow                                │
+      + adelay(2000ms) on TTS audio ◄────────────────────────┘
       + apad to fill lead-out silence
       + amix with background music (looped, trimmed)
       + subtitles filter (ASS file, PlayRes = video dims)
