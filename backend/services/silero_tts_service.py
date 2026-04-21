@@ -54,7 +54,7 @@ def _clean(text: str) -> str:
     text = re.sub(r'\n', ' ', text)
     text = re.sub(r'\.{2,}', '.', text)                # "word.." → "word."
     text = re.sub(r'[ \t]+', ' ', text)
-    text = re.sub(r'[^\wа-яёА-ЯЁ\s.,!?;:\-–—«»"\'()]', '', text, flags=re.UNICODE)
+    text = re.sub(r'[^\wа-яёА-ЯЁ\s.,!?;:\-–—«»"\'+()]', '', text, flags=re.UNICODE)
     return text.strip()
 
 

@@ -6,7 +6,7 @@ import { Tooltip } from '../ui/Tooltip'
 import { Badge } from '../ui/Badge'
 import { ttsApi, BASE_URL } from '../../lib/api'
 import { TTS_VOICES } from '../../types'
-import { HelpCircle, Mic, ArrowLeft, ArrowRight, CheckCircle2, Play, Pause, Volume2 } from 'lucide-react'
+import { HelpCircle, Mic, ArrowLeft, ArrowRight, CheckCircle2, Play, Pause, Volume2, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export function Step3_Audio() {
@@ -36,6 +36,17 @@ export function Step3_Audio() {
     if (!a) return
     const rect = e.currentTarget.getBoundingClientRect()
     a.currentTime = ((e.clientX - rect.left) / rect.width) * a.duration
+  }
+
+  const handleDownload = async () => {
+    if (!audioUrl || !audioFilename) return
+    const blob = await fetch(audioUrl).then(r => r.blob())
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = audioFilename
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const handleGenerate = async () => {
@@ -117,7 +128,16 @@ export function Step3_Audio() {
               <span className="text-sm font-medium">Аудио готово</span>
               <Badge variant="success">{formatDuration(audioDuration)}</Badge>
             </div>
-            <span className="text-xs text-muted">{audioFilename}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted">{audioFilename}</span>
+              <button
+                onClick={handleDownload}
+                className="text-muted hover:text-white transition-colors"
+                title="Скачать аудио"
+              >
+                <Download size={14} />
+              </button>
+            </div>
           </div>
 
           <audio
